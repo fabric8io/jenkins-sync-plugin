@@ -66,12 +66,14 @@ import static java.util.logging.Level.WARNING;
 public class BuildWatcher implements Watcher<Build> {
   private static final Logger logger = Logger.getLogger(BuildWatcher.class.getName());
 
-  private final String namespace;
-  private Watch buildsWatch;
+  private final String[] namespaces;
+  private Map<String,Watch> buildWatches;
   private ScheduledFuture relister;
 
-  public BuildWatcher(String namespace) {
-    this.namespace = namespace;
+  @SuppressFBWarnings("EI_EXPOSE_REP2")
+  public BuildWatcher(String[] namespaces) {
+    this.namespaces = namespaces;
+    this.buildWatches=new HashMap<String,Watch>();
   }
 
   public void start() {
@@ -80,25 +82,18 @@ public class BuildWatcher implements Watcher<Build> {
     Runnable task = new SafeTimerTask() {
       @Override
       public void doRun() {
-        try {
-          logger.fine("listing Build resources");
-          OpenShiftClient openShiftClient = getOpenShiftClient();
-          NonNamespaceOperation<Build, BuildList, DoneableBuild, BuildResource<Build, DoneableBuild, String, LogWatch>> builds = openShiftClient.builds().inNamespace(namespace);
-          BuildList newBuilds;
-          // we can only use field filters on the legacy /oapi REST API right now
-          if (openShiftClient.supportsApiPath("/oapi") && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.BUILD)) {
-            newBuilds = builds.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW).list();
-          } else {
-            newBuilds = builds.list();
+        for(String namespace:namespaces) {
+          try {
+            logger.fine("listing Build resources");
+            BuildList newBuilds = getOpenShiftClient().builds().inNamespace(namespace).withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW).list();
+            onInitialBuilds(newBuilds);
+            logger.fine("handled Build resources");
+            if (buildWatches.get(namespace) == null) {
+              buildWatches.put(namespace,getOpenShiftClient().builds().inNamespace(namespace).withResourceVersion(newBuilds.getMetadata().getResourceVersion()).watch(BuildWatcher.this));
+            }
+          } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to load initial Builds: " + e, e);
           }
-          onInitialBuilds(newBuilds);
-          logger.fine("handled Build resources");
-          if (buildsWatch == null) {
-            logger.info("watching the BuildList");
-            buildsWatch = builds.withResourceVersion(newBuilds.getMetadata().getResourceVersion()).watch(BuildWatcher.this);
-          }
-        } catch (Exception e) {
-          logger.log(Level.SEVERE, "Failed to load initial Builds: " + e, e);
         }
       }
     };
@@ -110,10 +105,12 @@ public class BuildWatcher implements Watcher<Build> {
       relister.cancel(true);
       relister = null;
     }
-    if (buildsWatch != null) {
-      buildsWatch.close();
-      buildsWatch = null;
+
+    for(Map.Entry<String,Watch> entry:buildWatches.entrySet()) {
+      entry.getValue().close();
+      buildWatches.remove(entry.getKey());
     }
+
   }
 
   @Override

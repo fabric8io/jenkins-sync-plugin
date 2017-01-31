@@ -15,7 +15,7 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
-import com.google.common.base.Objects;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
 import hudson.XmlFile;
 import hudson.model.AbstractItem;
@@ -60,18 +60,17 @@ public class PipelineJobListener extends ItemListener {
   private static final Logger logger = Logger.getLogger(PipelineJobListener.class.getName());
 
   private String server;
-  private String namespace;
-  private String jobNamePattern;
+  private String[] namespaces;
 
   public PipelineJobListener() {
     init();
   }
 
   @DataBoundConstructor
-  public PipelineJobListener(String server, String namespace, String jobNamePattern) {
+  @SuppressFBWarnings("EI_EXPOSE_REP2")
+  public PipelineJobListener(String server, String[] namespaces) {
     this.server = server;
-    this.namespace = namespace;
-    this.jobNamePattern = jobNamePattern;
+    this.namespaces = namespaces;
     init();
   }
 
@@ -85,7 +84,7 @@ public class PipelineJobListener extends ItemListener {
   }
 
   private void init() {
-    namespace = OpenShiftUtils.getNamespaceOrUseDefault(namespace, getOpenShiftClient());
+    namespaces = OpenShiftUtils.getNamespaceOrUseDefault(namespaces, getOpenShiftClient());
   }
 
   @Override
@@ -108,9 +107,12 @@ public class PipelineJobListener extends ItemListener {
     super.onDeleted(item);
     if (item instanceof WorkflowJob) {
       WorkflowJob job = (WorkflowJob) item;
-      BuildConfigProjectProperty property = buildConfigProjectForJob(job);
-      if (property != null) {
-        logger.info("Deleting BuildConfig " + property.getNamespace() + "/" + property.getName());
+      if (job.getProperty(BuildConfigProjectProperty.class) != null
+        && isNotBlank(job.getProperty(BuildConfigProjectProperty.class).getNamespace())
+        && isNotBlank(job.getProperty(BuildConfigProjectProperty.class).getName())) {
+
+        NamespaceName buildName = OpenShiftUtils.buildConfigNameFromJenkinsJobName(job.getName(), job.getProperty(BuildConfigProjectProperty.class).getNamespace());
+        logger.info("Deleting BuildConfig " + buildName);
 
         String namespace = property.getNamespace();
         String buildConfigName = property.getName();
