@@ -42,7 +42,7 @@ import jenkins.scm.api.SCMNavigator;
 import jenkins.scm.api.SCMNavigatorDescriptor;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 import jenkins.util.Timer;
-import org.apache.commons.beanutils.BeanUtilsBean;
+
 import org.apache.tools.ant.filters.StringInputStream;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
@@ -51,6 +51,8 @@ import org.w3c.dom.Document;
 import javax.xml.transform.Source;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamSource;
+
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -253,6 +255,16 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
       logger.log(Level.WARNING, "Caught: " + e, e);
     }
   }
+  
+  private void updateJob(WorkflowJob job, InputStream jobStream, String jobName, BuildConfig buildConfig, String existingBuildRunPolicy, BuildConfigProjectProperty buildConfigProjectProperty) throws IOException {
+      Source source = new StreamSource(jobStream);
+      job.updateByXml(source);
+      job.save();
+      logger.info("Updated job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
+      if (existingBuildRunPolicy != null && !existingBuildRunPolicy.equals(buildConfigProjectProperty.getBuildRunPolicy())) {
+        maybeScheduleNext(job);
+      }
+  }
 
   private void upsertJob(final BuildConfig buildConfig) throws Exception {
     if (isJenkinsBuildConfig(buildConfig)) {
@@ -327,32 +339,19 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
           InputStream jobStream = new StringInputStream(new XStream2().toXML(job));
 
           if (newJob) {
-            if (parent instanceof Folder) {
-              Folder folder = (Folder) parent;
-              folder.createProjectFromXML(
-                jobName,
-                jobStream
-              ).save();
-            } else {
-              activeInstance.createProjectFromXML(
-                jobName,
-                jobStream
-              ).save();
-            }
-
-            logger.info("Created job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
-          } else {
-            Source source = new StreamSource(jobStream);
-            job.updateByXml(source);
-            job.save();
-            logger.info("Updated job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
-            if (buildConfigProjectProperty != null) {
-              String bcpRunPolicy = buildConfigProjectProperty.getBuildRunPolicy();
-              if (existingBuildRunPolicy != null && !existingBuildRunPolicy.equals(bcpRunPolicy)) {
-                logger.info("Run policy changed from " + existingBuildRunPolicy + " to " + bcpRunPolicy + " for " + jobName + " so maybeSchedule next");
-                maybeScheduleNext(job);
+              try {
+                  Jenkins.getActiveInstance().createProjectFromXML(
+                          jobName,
+                          jobStream
+                        ).save();
+                        logger.info("Created job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
+              } catch (IllegalArgumentException e) {
+                  // see https://github.com/openshift/jenkins-sync-plugin/issues/117, jenkins might reload existing jobs on startup between the
+                  // newJob check above and when we make the createProjectFromXML call; if so, retry as an update
+                  updateJob(job, jobStream, jobName, buildConfig, existingBuildRunPolicy, buildConfigProjectProperty);
               }
-            }
+          } else {
+              updateJob(job, jobStream, jobName, buildConfig, existingBuildRunPolicy, buildConfigProjectProperty);
           }
           bk.commit();
           String fullName = job.getFullName();
