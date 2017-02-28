@@ -309,25 +309,13 @@ public class OpenShiftUtils {
     }
     // lets try the portalIP instead
     try {
-      if (openShiftClient != null) {
-        Service service = openShiftClient.services().inNamespace(namespace).withName(serviceName).get();
-        if (service != null) {
-          // if exposecontroller is being used
-          // see: https://github.com/fabric8io/exposecontroller/blob/master/README.md
-          String answer = getAnnotation(service, Annotations.FABRIC8_EXPOSE_URL);
-          if (answer != null) {
-            return answer;
-          }
-          ServiceSpec spec = service.getSpec();
-          if (spec != null) {
-            List<String> externalIPs = spec.getExternalIPs();
-            if (externalIPs != null) {
-              for (String externalIP : externalIPs) {
-                if (!Strings.isNullOrEmpty(externalIP)) {
-                  return defaultProtocolText + externalIP;
-                }
-              }
-            }
+      Service service = openShiftClient.services().inNamespace(namespace).withName(serviceName).get();
+      if (service != null) {
+        ServiceSpec spec = service.getSpec();
+        if (spec != null) {
+          String host = spec.getClusterIP();
+          if (host != null && host.length() > 0) {
+            return defaultProtocolText + host;
           }
         }
       }
