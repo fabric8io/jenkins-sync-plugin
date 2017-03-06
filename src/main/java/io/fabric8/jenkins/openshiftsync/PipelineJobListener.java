@@ -130,35 +130,33 @@ public class PipelineJobListener extends ItemListener {
    * Returns the mapping of the jenkins workflow job to a qualified namespace and BuildConfig name
    */
   private BuildConfigProjectProperty buildConfigProjectForJob(WorkflowJob job) {
+
     BuildConfigProjectProperty property = job.getProperty(BuildConfigProjectProperty.class);
+
     if (property != null) {
       if (StringUtils.isNotBlank(property.getNamespace()) && StringUtils.isNotBlank(property.getName())) {
+        logger.info("Found BuildConfigProjectProperty for namespace: " + property.getNamespace() + " name: " + property.getName());
         return property;
       }
+    }
 
-      // TODO load pattern from configuration!
-      String patternRegex = this.jobNamePattern;
-      String buildConfigName = job.getName();
-      if (StringUtils.isNotEmpty(buildConfigName) && StringUtils.isNotEmpty(patternRegex) && buildConfigName.matches(patternRegex)) {
-        if (!StringUtils.isNotEmpty(property.getNamespace())) {
-          property.setNamespace(namespace);
-        }
-        if (!StringUtils.isNotEmpty(property.getName())) {
-          // TODO we may have to swizzle the string to ensure its a valid name though
-          // e.g. lowercase + no special characters
-          property.setName(buildConfigName);
-        }
-        if (!StringUtils.isNotEmpty(property.getBuildRunPolicy())) {
-          property.setBuildRunPolicy("Serial");
-        }
+    // TODO load pattern from configuration!
+    String patternRegex = this.jobNamePattern;
 
-        // TODO what to do for these values?
-        String resourceVersion = null;
-        String uuid = null;
+    // TODO we may have to swizzle the string to ensure its a valid name though
+    // e.g. lowercase + no special characters
+    // job name is the branch we are building so let's get the parent to find the real job name
+    String buildConfigName = "";
+    if (job.getParent() != null){
+      buildConfigName = job.getParent().getDisplayName();
+    }
 
-        logger.info("Creating BuildConfigProjectProperty for namespace: " + property.getNamespace() + " name: " + property.getName());
-        return property;
-      }
+    if (StringUtils.isNotEmpty(buildConfigName) && StringUtils.isNotEmpty(patternRegex) && buildConfigName.matches(patternRegex)) {
+      // TODO what to do for these values?
+      String resourceVersion = null;
+      String uuid = null;
+      logger.info("Creating BuildConfigProjectProperty for namespace: " + namespace + " name: " + buildConfigName);
+      return new BuildConfigProjectProperty(namespace, buildConfigName, uuid, resourceVersion, "Serial");
     }
 
     return null;
