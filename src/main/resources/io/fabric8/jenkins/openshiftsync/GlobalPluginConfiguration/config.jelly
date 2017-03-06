@@ -30,5 +30,9 @@
              description="The namespace to sync BuildConfigs with - leave blank to sync with all namespaces. Environment variables in the form ${name} will be expanded.">
       <f:textbox/>
     </f:entry>
+    <f:entry title="Job Name Pattern " field="jobNamePattern"
+             description="The regular expression to match pipeline job names which should be sync'd to BuildConfigs in OpenShift - leave blank to not sync Jenkins Jobs to OpenShift BuildConfigs.">
+      <f:textbox/>
+    </f:entry>
   </f:section>
 </j:jelly>

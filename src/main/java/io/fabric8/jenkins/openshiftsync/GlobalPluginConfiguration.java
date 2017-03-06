@@ -16,7 +16,9 @@
 package io.fabric8.jenkins.openshiftsync;
 
 import hudson.Extension;
+import hudson.ExtensionList;
 import hudson.model.Computer;
+import hudson.model.listeners.ItemListener;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import jenkins.model.GlobalConfiguration;
@@ -44,15 +46,18 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   private String namespace;
 
+  private String jobNamePattern;
+
   private transient BuildWatcher buildWatcher;
 
   private transient BuildConfigWatcher buildConfigWatcher;
 
   @DataBoundConstructor
-  public GlobalPluginConfiguration(boolean enable, String server, String namespace) {
+  public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern) {
     this.enabled = enable;
     this.server = server;
     this.namespace = namespace;
+    this.jobNamePattern = jobNamePattern;
     configChange();
   }
 
@@ -101,6 +106,14 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   public void setNamespace(String namespace) {
     this.namespace = namespace;
+  }
+
+  public String getJobNamePattern() {
+    return jobNamePattern;
+  }
+
+  public void setJobNamePattern(String jobNamePattern) {
+    this.jobNamePattern = jobNamePattern;
   }
 
   private void configChange() {
