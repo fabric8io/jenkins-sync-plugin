@@ -15,6 +15,8 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import hudson.model.Hudson;
+import hudson.model.ItemGroup;
 import hudson.plugins.git.BranchSpec;
 import hudson.plugins.git.GitSCM;
 import hudson.plugins.git.SubmoduleConfig;
@@ -34,6 +36,7 @@ import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
+import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject;
 
 import java.io.File;
 import java.io.IOException;
@@ -189,6 +192,15 @@ public class BuildConfigToJobMapper {
         return true;
       }
       return false;
+    }
+
+    // if this is a multi branch workflow project then by default we only look for files that match 'Jenkinsfile'
+    // which is the OpenShift BuildConfig default too so no need to set the optional Jenkinsfile location
+    ItemGroup parent = job.getParent();
+    if (parent != null && !(parent instanceof Hudson)){
+      if (parent instanceof WorkflowMultiBranchProject){
+        return true;
+      }
     }
 
     LOGGER.warning("Cannot update BuildConfig " + namespaceName + " as the definition is of class " + (definition == null ? "null" : definition.getClass().getName()));
