@@ -34,6 +34,7 @@ import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.kohsuke.stapler.DataBoundConstructor;
 
+import java.util.Collection;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -126,12 +127,30 @@ public class PipelineJobListener extends ItemListener {
 
   public void upsertItem(Item item) {
     if (item instanceof WorkflowJob) {
-      WorkflowJob job = (WorkflowJob) item;
-      BuildConfigProjectProperty property = buildConfigProjectForJob(job);
-      if (property != null) {
-        logger.info("Upsert WorkflowJob " + job.getName() + " to BuildConfig: "+ property.getNamespace() + "/" + property.getName() + " in OpenShift");
-        upsertBuildConfigForJob(job, property);
+      upsertWorkflowJob((WorkflowJob) item);
+    } else if (item instanceof ItemGroup) {
+      upsertItemGroup((ItemGroup) item);
+    }
+  }
+
+  private void upsertItemGroup(ItemGroup itemGroup) {
+    Collection items = itemGroup.getItems();
+    if (items != null) {
+      for (Object child : items) {
+        if (child instanceof WorkflowJob) {
+          upsertWorkflowJob((WorkflowJob) child);
+        } else if (child instanceof ItemGroup) {
+          upsertItemGroup((ItemGroup) child);
+        }
       }
+    }
+  }
+
+  private void upsertWorkflowJob(WorkflowJob job) {
+    BuildConfigProjectProperty property = buildConfigProjectForJob(job);
+    if (property != null) {
+      logger.info("Upsert WorkflowJob " + job.getName() + " to BuildConfig: "+ property.getNamespace() + "/" + property.getName() + " in OpenShift");
+      upsertBuildConfigForJob(job, property);
     }
   }
 
