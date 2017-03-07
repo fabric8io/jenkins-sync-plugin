@@ -15,12 +15,21 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.google.common.base.Objects;
 import hudson.Extension;
+import hudson.model.Hudson;
 import hudson.model.Item;
+import hudson.model.ItemGroup;
 import hudson.model.listeners.ItemListener;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigBuilder;
+import io.fabric8.openshift.api.model.BuildConfigSpec;
+import io.fabric8.openshift.api.model.BuildSource;
+import io.fabric8.openshift.api.model.BuildStrategy;
+import io.fabric8.openshift.api.model.GitBuildSource;
+import io.fabric8.openshift.api.model.JenkinsPipelineBuildStrategy;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.kohsuke.stapler.DataBoundConstructor;
@@ -147,16 +156,33 @@ public class PipelineJobListener extends ItemListener {
     // e.g. lowercase + no special characters
     // job name is the branch we are building so let's get the parent to find the real job name
     String buildConfigName = "";
-    if (job.getParent() != null){
-      buildConfigName = job.getParent().getDisplayName();
+    ItemGroup parent = job.getParent();
+    if (parent != null && !(parent instanceof Hudson)){
+      buildConfigName = parent.getDisplayName();
+    } else {
+      buildConfigName = job.getDisplayName();
     }
-
     if (StringUtils.isNotEmpty(buildConfigName) && StringUtils.isNotEmpty(patternRegex) && buildConfigName.matches(patternRegex)) {
-      // TODO what to do for these values?
-      String resourceVersion = null;
+      // Convert to safe name
+      buildConfigName = buildConfigName.toLowerCase().replace(':', '-').replace('@', '-').replace('.', '-');
+
+      // we will update the uuid when we create the BC
       String uuid = null;
+
+      // TODO what to do for the resourceVersion?
+      String resourceVersion = null;
+      String buildRunPolicy = "Serial";
       logger.info("Creating BuildConfigProjectProperty for namespace: " + namespace + " name: " + buildConfigName);
-      return new BuildConfigProjectProperty(namespace, buildConfigName, uuid, resourceVersion, "Serial");
+      if (property != null) {
+        property.setNamespace(namespace);
+        property.setName(buildConfigName);
+        if (!StringUtils.isNotBlank(property.getBuildRunPolicy())) {
+          property.setBuildRunPolicy(buildRunPolicy);
+        }
+        return property;
+      } else {
+        return new BuildConfigProjectProperty(namespace, buildConfigName, uuid, resourceVersion, buildRunPolicy);
+      }
     }
 
     return null;
@@ -164,19 +190,37 @@ public class PipelineJobListener extends ItemListener {
 
   private void upsertBuildConfigForJob(WorkflowJob job, BuildConfigProjectProperty buildConfigProjectProperty) {
     boolean create = false;
-    BuildConfig jobBuildConfig = buildConfigProjectProperty.getBuildConfig();
+    BuildConfig jobBuildConfig = getOpenShiftClient().buildConfigs().
+            inNamespace(buildConfigProjectProperty.getNamespace()).withName(buildConfigProjectProperty.getName()).get();
     if (jobBuildConfig == null) {
       create = true;
       jobBuildConfig = new BuildConfigBuilder().
               withNewMetadata().withName(buildConfigProjectProperty.getName()).
               withNamespace(buildConfigProjectProperty.getNamespace()).endMetadata().
-              withNewSpec().endSpec().build();
+              withNewSpec().
+              withNewStrategy().withType("JenkinsPipeline").withNewJenkinsPipelineStrategy().endJenkinsPipelineStrategy().endStrategy().
+              endSpec().build();
+    } else {
+      ObjectMeta metadata = jobBuildConfig.getMetadata();
+      String uid = buildConfigProjectProperty.getUid();
+      if (metadata != null && StringUtils.isEmpty(uid)) {
+        buildConfigProjectProperty.setUid(metadata.getUid());
+      } else if (!Objects.equal(uid, metadata.getUid())) {
+        // the UUIDs are different so lets ignore this BC
+        return;
+      }
     }
     updateBuildConfigFromJob(job, jobBuildConfig);
 
+    if (!hasEmbeddedPipelineOrValidSource(jobBuildConfig)) {
+      // this pipeline has not yet been populated with the git source or an embedded pipeline so lets not create/update a BC yet
+      return;
+    }
     if (create) {
       try {
-        getOpenShiftClient().buildConfigs().inNamespace(jobBuildConfig.getMetadata().getNamespace()).create(jobBuildConfig);
+        BuildConfig bc = getOpenShiftClient().buildConfigs().inNamespace(jobBuildConfig.getMetadata().getNamespace()).create(jobBuildConfig);
+        String uid = bc.getMetadata().getUid();
+        buildConfigProjectProperty.setUid(uid);
       } catch (Exception e) {
         logger.log(Level.WARNING, "Failed to create BuildConfig: " + NamespaceName.create(jobBuildConfig) + ". " + e, e);
       }
@@ -187,6 +231,34 @@ public class PipelineJobListener extends ItemListener {
         logger.log(Level.WARNING, "Failed to update BuildConfig: " + NamespaceName.create(jobBuildConfig) + ". " + e, e);
       }
     }
+  }
+
+  private boolean hasEmbeddedPipelineOrValidSource(BuildConfig buildConfig) {
+    BuildConfigSpec spec = buildConfig.getSpec();
+    if (spec != null) {
+      BuildStrategy strategy = spec.getStrategy();
+      if (strategy != null) {
+        JenkinsPipelineBuildStrategy jenkinsPipelineStrategy = strategy.getJenkinsPipelineStrategy();
+        if (jenkinsPipelineStrategy != null) {
+          if (StringUtils.isNotBlank(jenkinsPipelineStrategy.getJenkinsfile())) {
+            return true;
+          }
+          if (StringUtils.isNotBlank(jenkinsPipelineStrategy.getJenkinsfilePath())) {
+            BuildSource source = spec.getSource();
+            if (source != null) {
+              GitBuildSource git = source.getGit();
+              if (git != null) {
+                if (StringUtils.isNotBlank(git.getUri())) {
+                  return true;
+                }
+              }
+              // TODO support other SCMs
+            }
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

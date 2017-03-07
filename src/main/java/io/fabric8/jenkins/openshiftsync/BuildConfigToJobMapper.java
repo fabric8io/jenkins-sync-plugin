@@ -135,7 +135,12 @@ public class BuildConfigToJobMapper {
       CpsScmFlowDefinition cpsScmFlowDefinition = (CpsScmFlowDefinition) definition;
       String scriptPath = cpsScmFlowDefinition.getScriptPath();
       if (scriptPath != null && scriptPath.trim().length() > 0) {
-        String bcContextDir = buildConfig.getSpec().getSource().getContextDir();
+        BuildSource source = spec.getSource();
+        if (source == null) {
+          source = new BuildSource();
+          spec.setSource(source);
+        }
+        String bcContextDir = source.getContextDir();
         if (StringUtils.isNotBlank(bcContextDir) && scriptPath.startsWith(bcContextDir)) {
           scriptPath = scriptPath.replaceFirst("^" + bcContextDir + "/?", "");
         }
@@ -145,6 +150,7 @@ public class BuildConfigToJobMapper {
         SCM scm = cpsScmFlowDefinition.getScm();
         if (scm instanceof GitSCM) {
           GitSCM gitSCM = (GitSCM) scm;
+          source.setType("Git");
           List<RemoteConfig> repositories = gitSCM.getRepositories();
           if (repositories != null && repositories.size() > 0) {
             RemoteConfig remoteConfig = repositories.get(0);
