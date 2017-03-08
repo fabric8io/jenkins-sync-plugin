@@ -183,7 +183,7 @@ public class PipelineJobListener extends ItemListener {
     }
     if (StringUtils.isNotEmpty(buildConfigName) && StringUtils.isNotEmpty(patternRegex) && buildConfigName.matches(patternRegex)) {
       // Convert to safe name
-      buildConfigName = buildConfigName.toLowerCase().replace(':', '-').replace('@', '-').replace('.', '-');
+      buildConfigName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
 
       // we will update the uuid when we create the BC
       String uuid = null;
@@ -289,7 +289,6 @@ public class PipelineJobListener extends ItemListener {
       this.jobNamePattern = config.getJobNamePattern();
       this.namespace = config.getNamespace();
       this.server = config.getServer();
-      logger.info("====== Configured from the global configuration: " + this);
     }
   }
 
