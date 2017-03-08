@@ -17,7 +17,6 @@ package io.fabric8.jenkins.openshiftsync;
 
 import com.google.common.base.Objects;
 import hudson.Extension;
-import hudson.model.Hudson;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.model.listeners.ItemListener;
@@ -168,22 +167,10 @@ public class PipelineJobListener extends ItemListener {
       }
     }
 
-    // TODO load pattern from configuration!
     String patternRegex = this.jobNamePattern;
-
-    // TODO we may have to swizzle the string to ensure its a valid name though
-    // e.g. lowercase + no special characters
-    // job name is the branch we are building so let's get the parent to find the real job name
-    String buildConfigName = "";
-    ItemGroup parent = job.getParent();
-    if (parent != null && !(parent instanceof Hudson)){
-      buildConfigName = parent.getDisplayName();
-    } else {
-      buildConfigName = job.getDisplayName();
-    }
-    if (StringUtils.isNotEmpty(buildConfigName) && StringUtils.isNotEmpty(patternRegex) && buildConfigName.matches(patternRegex)) {
-      // Convert to safe name
-      buildConfigName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
+    String jobName = JenkinsUtils.getFullJobName(job);
+    if (StringUtils.isNotEmpty(jobName) && StringUtils.isNotEmpty(patternRegex) && jobName.matches(patternRegex)) {
+      String buildConfigName = OpenShiftUtils.convertNameToValidResourceName(jobName);
 
       // we will update the uuid when we create the BC
       String uuid = null;
@@ -203,7 +190,6 @@ public class PipelineJobListener extends ItemListener {
         return new BuildConfigProjectProperty(namespace, buildConfigName, uuid, resourceVersion, buildRunPolicy);
       }
     }
-
     return null;
   }
 
@@ -215,7 +201,9 @@ public class PipelineJobListener extends ItemListener {
       create = true;
       jobBuildConfig = new BuildConfigBuilder().
               withNewMetadata().withName(buildConfigProjectProperty.getName()).
-              withNamespace(buildConfigProjectProperty.getNamespace()).endMetadata().
+              withNamespace(buildConfigProjectProperty.getNamespace()).
+              addToAnnotations(OpenShiftUtils.GENERATED_BY_ANNOTATION, "jenkins").
+              endMetadata().
               withNewSpec().
               withNewStrategy().withType("JenkinsPipeline").withNewJenkinsPipelineStrategy().endJenkinsPipelineStrategy().endStrategy().
               endSpec().build();
@@ -235,6 +223,10 @@ public class PipelineJobListener extends ItemListener {
       // this pipeline has not yet been populated with the git source or an embedded pipeline so lets not create/update a BC yet
       return;
     }
+
+    // lets annotate with the job name
+    OpenShiftUtils.addAnnotation(jobBuildConfig, OpenShiftUtils.JENKINS_JOB_PATH_ANNOTATION, JenkinsUtils.getFullJobName(job));
+    
     if (create) {
       try {
         BuildConfig bc = getOpenShiftClient().buildConfigs().inNamespace(jobBuildConfig.getMetadata().getNamespace()).create(jobBuildConfig);

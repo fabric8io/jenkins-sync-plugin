@@ -37,6 +37,7 @@ import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -161,13 +162,19 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
         public Void call() throws Exception {
           String jobName = jenkinsJobName(buildConfig);
           WorkflowJob job = getJobFromBuildConfig(buildConfig);
+          if (job == null) {
+            job = (WorkflowJob) Jenkins.getActiveInstance().getItemByFullName(jobName);
+          }
           boolean newJob = job == null;
           if (newJob) {
             job = new WorkflowJob(Jenkins.getActiveInstance(), jobName);
           }
           BulkChange bk = new BulkChange(job);
 
-          job.setDisplayName(jenkinsJobDisplayName(buildConfig));
+          // lets not update the display name of Jobs created by Jenkins
+          if (!Objects.equals("jenkins", OpenShiftUtils.getAnnotation(buildConfig, OpenShiftUtils.GENERATED_BY_ANNOTATION))) {
+            job.setDisplayName(jenkinsJobDisplayName(buildConfig));
+          }
 
           FlowDefinition flowFromBuildConfig = mapBuildConfigToFlow(buildConfig);
           if (flowFromBuildConfig == null) {

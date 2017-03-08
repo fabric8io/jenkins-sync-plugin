@@ -369,4 +369,8 @@ public class JenkinsUtils {
       }
     }
   }
+
+  public static String getFullJobName(WorkflowJob job) {
+    return job.getRelativeNameFrom(Jenkins.getInstance());
+  }
 }

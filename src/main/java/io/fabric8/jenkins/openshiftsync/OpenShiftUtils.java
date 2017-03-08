@@ -47,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -60,6 +61,9 @@ import static java.util.logging.Level.FINE;
 /**
  */
 public class OpenShiftUtils {
+  public static final String JENKINS_JOB_PATH_ANNOTATION = "jenkins.openshift.org/job-path";
+  public static final String GENERATED_BY_ANNOTATION = "jenkins.openshift.org/generated-by";
+
   private final static Logger logger = Logger.getLogger(OpenShiftUtils.class.getName());
 
   private static OpenShiftClient openShiftClient;
@@ -124,10 +128,16 @@ public class OpenShiftUtils {
    * @return the jenkins job name for the given BuildConfig
    */
   public static String jenkinsJobName(BuildConfig bc) {
-    String namespace = bc.getMetadata().getNamespace();
-    String name = bc.getMetadata().getName();
+    ObjectMeta metadata = bc.getMetadata();
+    String jobName = getAnnotation(bc, OpenShiftUtils.JENKINS_JOB_PATH_ANNOTATION);
+    if (StringUtils.isNotBlank(jobName)) {
+      return jobName;
+    }
+    String namespace = metadata.getNamespace();
+    String name = metadata.getName();
     return jenkinsJobName(namespace, name);
   }
+
 
   /**
    * Creates the Jenkins Job name for the given buildConfigName
@@ -362,6 +372,32 @@ public class OpenShiftUtils {
       lastCh = ch;
     }
     return builder.toString();
+  }
+
+  public static String getAnnotation(HasMetadata resource, String name) {
+    ObjectMeta metadata = resource.getMetadata();
+    if (metadata != null) {
+      Map<String, String> annotations = metadata.getAnnotations();
+      if (annotations != null) {
+        return annotations.get(name);
+      }
+    }
+    return null;
+  }
+
+
+  public static void addAnnotation(HasMetadata resource, String name, String value) {
+    ObjectMeta metadata = resource.getMetadata();
+    if (metadata == null) {
+      metadata = new ObjectMeta();
+      resource.setMetadata(metadata);
+    }
+    Map<String, String> annotations = metadata.getAnnotations();
+    if (annotations == null) {
+      annotations = new HashMap<>();
+      metadata.setAnnotations(annotations);
+    }
+    annotations.put(name, value);
   }
 
   abstract class StatelessReplicationControllerMixIn extends ReplicationController {
