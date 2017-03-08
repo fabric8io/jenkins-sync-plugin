@@ -17,6 +17,8 @@ package io.fabric8.jenkins.openshiftsync;
 
 import hudson.model.Hudson;
 import hudson.model.ItemGroup;
+import hudson.model.JobProperty;
+import hudson.model.JobPropertyDescriptor;
 import hudson.plugins.git.BranchSpec;
 import hudson.plugins.git.GitSCM;
 import hudson.plugins.git.SubmoduleConfig;
@@ -41,7 +43,9 @@ import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
@@ -198,7 +202,14 @@ public class BuildConfigToJobMapper {
     // which is the OpenShift BuildConfig default too so no need to set the optional Jenkinsfile location
     ItemGroup parent = job.getParent();
     if (parent != null && !(parent instanceof Hudson)){
-      if (parent instanceof WorkflowMultiBranchProject){
+      if (parent.getClass().getName().equalsIgnoreCase("org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject")){
+        Map<JobPropertyDescriptor, JobProperty<? super WorkflowJob>> props = job.getProperties();
+
+        Iterator it = props.entrySet().iterator();
+        while (it.hasNext()) {
+          Map.Entry pair = (Map.Entry)it.next();
+          LOGGER.info(pair.getKey() + " = " + pair.getValue());
+        }
         return true;
       }
     }
