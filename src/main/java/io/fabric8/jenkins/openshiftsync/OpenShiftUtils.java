@@ -19,6 +19,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import hudson.model.Item;
+import hudson.model.ItemGroup;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.ReplicationController;
@@ -38,6 +40,7 @@ import io.fabric8.openshift.api.model.RouteSpec;
 import io.fabric8.openshift.client.DefaultOpenShiftClient;
 import io.fabric8.openshift.client.OpenShiftClient;
 import io.fabric8.openshift.client.OpenShiftConfigBuilder;
+import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormatter;
@@ -52,6 +55,7 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Annotations.DISABLE_SYNC_CREATE_ON;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.NEW;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.PENDING;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.RUNNING;
@@ -61,8 +65,6 @@ import static java.util.logging.Level.FINE;
 /**
  */
 public class OpenShiftUtils {
-  public static final String JENKINS_JOB_PATH_ANNOTATION = "jenkins.openshift.org/job-path";
-  public static final String GENERATED_BY_ANNOTATION = "jenkins.openshift.org/generated-by";
 
   private final static Logger logger = Logger.getLogger(OpenShiftUtils.class.getName());
 
@@ -117,7 +119,6 @@ public class OpenShiftUtils {
         }
       }
     }
-
     return false;
   }
 
@@ -129,15 +130,40 @@ public class OpenShiftUtils {
    */
   public static String jenkinsJobName(BuildConfig bc) {
     ObjectMeta metadata = bc.getMetadata();
-    String jobName = getAnnotation(bc, OpenShiftUtils.JENKINS_JOB_PATH_ANNOTATION);
-    if (StringUtils.isNotBlank(jobName)) {
-      return jobName;
-    }
     String namespace = metadata.getNamespace();
     String name = metadata.getName();
     return jenkinsJobName(namespace, name);
   }
 
+  /**
+   * Finds the full jenkins job path including folders for the given {@link BuildConfig}.
+   *
+   * @param bc the BuildConfig
+   * @return the jenkins job name for the given BuildConfig
+   */
+  public static String jenkinsJobFullName(BuildConfig bc) {
+    ObjectMeta metadata = bc.getMetadata();
+    String jobName = getAnnotation(bc, Annotations.JENKINS_JOB_PATH);
+    if (StringUtils.isNotBlank(jobName)) {
+      return jobName;
+    }
+    return jenkinsJobName(bc);
+  }
+
+  /**
+   * Returns the parent for the given item full name or default to the active jenkins if it does not exist
+   */
+  public static ItemGroup getFullNameParent(Jenkins activeJenkins, String fullName) {
+    int idx = fullName.lastIndexOf('/');
+    if (idx > 0) {
+      String parentFullName = fullName.substring(0, idx);
+      Item parent = activeJenkins.getItemByFullName(parentFullName);
+      if (parent instanceof ItemGroup) {
+        return (ItemGroup) parent;
+      }
+    }
+    return activeJenkins;
+  }
 
   /**
    * Creates the Jenkins Job name for the given buildConfigName

@@ -202,7 +202,7 @@ public class PipelineJobListener extends ItemListener {
       jobBuildConfig = new BuildConfigBuilder().
               withNewMetadata().withName(buildConfigProjectProperty.getName()).
               withNamespace(buildConfigProjectProperty.getNamespace()).
-              addToAnnotations(OpenShiftUtils.GENERATED_BY_ANNOTATION, "jenkins").
+              addToAnnotations(Annotations.GENERATED_BY, "jenkins").
               endMetadata().
               withNewSpec().
               withNewStrategy().withType("JenkinsPipeline").withNewJenkinsPipelineStrategy().endJenkinsPipelineStrategy().endStrategy().
@@ -225,7 +225,7 @@ public class PipelineJobListener extends ItemListener {
     }
 
     // lets annotate with the job name
-    OpenShiftUtils.addAnnotation(jobBuildConfig, OpenShiftUtils.JENKINS_JOB_PATH_ANNOTATION, JenkinsUtils.getFullJobName(job));
+    OpenShiftUtils.addAnnotation(jobBuildConfig, Annotations.JENKINS_JOB_PATH, JenkinsUtils.getFullJobName(job));
     
     if (create) {
       try {

@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Annotations.DISABLE_SYNC_CREATE_ON;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.getJobFromBuildConfig;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.initializeBuildConfigToJobMap;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.putJobWithBuildConfig;
@@ -51,9 +52,12 @@ import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMapper.mapBuildCo
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL;
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL_LATEST_ONLY;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAnnotation;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getFullNameParent;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.isJenkinsBuildConfig;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobDisplayName;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobFullName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.parseResourceVersion;
 import static java.net.HttpURLConnection.HTTP_GONE;
@@ -161,18 +165,24 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
         @Override
         public Void call() throws Exception {
           String jobName = jenkinsJobName(buildConfig);
+          String jobFullName = jenkinsJobFullName(buildConfig);
           WorkflowJob job = getJobFromBuildConfig(buildConfig);
           if (job == null) {
-            job = (WorkflowJob) Jenkins.getActiveInstance().getItemByFullName(jobName);
+            job = (WorkflowJob) Jenkins.getActiveInstance().getItemByFullName(jobFullName);
           }
           boolean newJob = job == null;
           if (newJob) {
-            job = new WorkflowJob(Jenkins.getActiveInstance(), jobName);
+            String disableOn = getAnnotation(buildConfig, DISABLE_SYNC_CREATE_ON);
+            if (disableOn != null && disableOn.equalsIgnoreCase("jenkins")) {
+              logger.info("Not creating missing jenkins job " + jobFullName + " due to annotation: " + DISABLE_SYNC_CREATE_ON);
+              return null;
+            }
+            job = new WorkflowJob(getFullNameParent(Jenkins.getActiveInstance(), jobFullName), jobName);
           }
           BulkChange bk = new BulkChange(job);
 
           // lets not update the display name of Jobs created by Jenkins
-          if (!Objects.equals("jenkins", OpenShiftUtils.getAnnotation(buildConfig, OpenShiftUtils.GENERATED_BY_ANNOTATION))) {
+          if (!Objects.equals("jenkins", OpenShiftUtils.getAnnotation(buildConfig, Annotations.GENERATED_BY))) {
             job.setDisplayName(jenkinsJobDisplayName(buildConfig));
           }
 
