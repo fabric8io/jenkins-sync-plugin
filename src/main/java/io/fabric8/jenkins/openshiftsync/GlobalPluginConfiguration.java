@@ -16,9 +16,7 @@
 package io.fabric8.jenkins.openshiftsync;
 
 import hudson.Extension;
-import hudson.ExtensionList;
 import hudson.model.Computer;
-import hudson.model.listeners.ItemListener;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import jenkins.model.GlobalConfiguration;
@@ -48,16 +46,22 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   private String jobNamePattern;
 
+  private String skipOrganisationPrefix;
+
+  private String skipBranchSuffix;
+
   private transient BuildWatcher buildWatcher;
 
   private transient BuildConfigWatcher buildConfigWatcher;
 
   @DataBoundConstructor
-  public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern) {
+  public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern, String skipOrganisationPrefix, String skipBranchSuffix) {
     this.enabled = enable;
     this.server = server;
     this.namespace = namespace;
     this.jobNamePattern = jobNamePattern;
+    this.skipOrganisationPrefix = skipOrganisationPrefix;
+    this.skipBranchSuffix = skipBranchSuffix;
     configChange();
   }
 
@@ -114,6 +118,22 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   public void setJobNamePattern(String jobNamePattern) {
     this.jobNamePattern = jobNamePattern;
+  }
+
+  public String getSkipOrganisationPrefix() {
+    return skipOrganisationPrefix;
+  }
+
+  public void setSkipOrganisationPrefix(String skipOrganisationPrefix) {
+    this.skipOrganisationPrefix = skipOrganisationPrefix;
+  }
+
+  public String getSkipBranchSuffix() {
+    return skipBranchSuffix;
+  }
+
+  public void setSkipBranchSuffix(String skipBranchSuffix) {
+    this.skipBranchSuffix = skipBranchSuffix;
   }
 
   private void configChange() {

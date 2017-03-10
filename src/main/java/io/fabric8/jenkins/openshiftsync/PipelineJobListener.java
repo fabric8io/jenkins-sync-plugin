@@ -170,7 +170,7 @@ public class PipelineJobListener extends ItemListener {
     String patternRegex = this.jobNamePattern;
     String jobName = JenkinsUtils.getFullJobName(job);
     if (StringUtils.isNotEmpty(jobName) && StringUtils.isNotEmpty(patternRegex) && jobName.matches(patternRegex)) {
-      String buildConfigName = OpenShiftUtils.convertNameToValidResourceName(jobName);
+      String buildConfigName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(job));
 
       // we will update the uuid when we create the BC
       String uuid = null;
