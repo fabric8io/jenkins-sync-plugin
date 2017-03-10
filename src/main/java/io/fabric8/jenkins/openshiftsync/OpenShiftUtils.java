@@ -15,12 +15,15 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.cloudbees.hudson.plugins.folder.Folder;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import hudson.BulkChange;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
+import hudson.util.XStream2;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.ReplicationController;
@@ -42,10 +45,13 @@ import io.fabric8.openshift.client.OpenShiftClient;
 import io.fabric8.openshift.client.OpenShiftConfigBuilder;
 import jenkins.model.Jenkins;
 import org.apache.commons.lang.StringUtils;
+import org.apache.tools.ant.filters.StringInputStream;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -55,7 +61,6 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static io.fabric8.jenkins.openshiftsync.Annotations.DISABLE_SYNC_CREATE_ON;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.NEW;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.PENDING;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.RUNNING;
@@ -129,10 +134,7 @@ public class OpenShiftUtils {
    * @return the jenkins job name for the given BuildConfig
    */
   public static String jenkinsJobName(BuildConfig bc) {
-    ObjectMeta metadata = bc.getMetadata();
-    String namespace = metadata.getNamespace();
-    String name = metadata.getName();
-    return jenkinsJobName(namespace, name);
+    return getName(bc);
   }
 
   /**
@@ -147,33 +149,51 @@ public class OpenShiftUtils {
     if (StringUtils.isNotBlank(jobName)) {
       return jobName;
     }
-    return jenkinsJobName(bc);
+    return getNamespace(bc) + "/" + getName(bc);
   }
 
   /**
    * Returns the parent for the given item full name or default to the active jenkins if it does not exist
    */
-  public static ItemGroup getFullNameParent(Jenkins activeJenkins, String fullName) {
+  public static ItemGroup getFullNameParent(Jenkins activeJenkins, String fullName, String namespace) {
     int idx = fullName.lastIndexOf('/');
     if (idx > 0) {
       String parentFullName = fullName.substring(0, idx);
       Item parent = activeJenkins.getItemByFullName(parentFullName);
       if (parent instanceof ItemGroup) {
         return (ItemGroup) parent;
+      } else if (parentFullName.equals(namespace)) {
+
+        // lets lazily create a new folder for this namespace parent
+        Folder folder = new Folder(activeJenkins, namespace);
+        try {
+          folder.setDescription("Folder for the OpenShift project: " + namespace);
+        } catch (IOException e) {
+          // ignore
+        }
+        BulkChange bk = new BulkChange(folder);
+        InputStream jobStream = new StringInputStream(new XStream2().toXML(folder));
+        try {
+          activeJenkins.createProjectFromXML(
+            namespace,
+            jobStream
+          ).save();
+        } catch (IOException e) {
+          logger.warning("Failed to create the Folder: " + namespace);
+        }
+        try {
+          bk.commit();
+        } catch (IOException e) {
+          logger.warning("Failed to commit toe BulkChange for the Folder: " + namespace);
+        }
+        // lets look it up again to be sure
+        parent = activeJenkins.getItemByFullName(namespace);
+        if (parent instanceof ItemGroup) {
+          return (ItemGroup) parent;
+        }
       }
     }
     return activeJenkins;
-  }
-
-  /**
-   * Creates the Jenkins Job name for the given buildConfigName
-   *
-   * @param namespace the namespace of the build
-   * @param buildConfigName the name of the {@link BuildConfig} in in the namespace
-   * @return the jenkins job name for the given namespace and name
-   */
-  public static String jenkinsJobName(String namespace, String buildConfigName) {
-    return namespace + "-" + buildConfigName;
   }
 
   /**
@@ -425,6 +445,24 @@ public class OpenShiftUtils {
     }
     annotations.put(name, value);
   }
+
+  public static String getNamespace(HasMetadata resource) {
+    ObjectMeta metadata = resource.getMetadata();
+    if (metadata != null) {
+      return metadata.getNamespace();
+    }
+    return null;
+  }
+
+  public static String getName(HasMetadata resource) {
+    ObjectMeta metadata = resource.getMetadata();
+    if (metadata != null) {
+      return metadata.getName();
+    }
+    return null;
+  }
+
+
 
   abstract class StatelessReplicationControllerMixIn extends ReplicationController {
     @JsonIgnore

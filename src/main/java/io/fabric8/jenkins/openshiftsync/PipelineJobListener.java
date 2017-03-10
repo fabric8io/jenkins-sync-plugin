@@ -225,7 +225,9 @@ public class PipelineJobListener extends ItemListener {
     }
 
     // lets annotate with the job name
-    OpenShiftUtils.addAnnotation(jobBuildConfig, Annotations.JENKINS_JOB_PATH, JenkinsUtils.getFullJobName(job));
+    if (create) {
+      OpenShiftUtils.addAnnotation(jobBuildConfig, Annotations.JENKINS_JOB_PATH, JenkinsUtils.getFullJobName(job));
+    }
     
     if (create) {
       try {

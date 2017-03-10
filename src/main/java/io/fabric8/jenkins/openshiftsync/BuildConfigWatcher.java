@@ -15,8 +15,10 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.cloudbees.hudson.plugins.folder.Folder;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.BulkChange;
+import hudson.model.ItemGroup;
 import hudson.model.Job;
 import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
@@ -37,7 +39,6 @@ import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -54,9 +55,10 @@ import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL_LATEST_ONLY
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAnnotation;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getFullNameParent;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getName;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getNamespace;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.isJenkinsBuildConfig;
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobDisplayName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobFullName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.jenkinsJobName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.parseResourceVersion;
@@ -167,24 +169,22 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
           String jobName = jenkinsJobName(buildConfig);
           String jobFullName = jenkinsJobFullName(buildConfig);
           WorkflowJob job = getJobFromBuildConfig(buildConfig);
+          Jenkins activeInstance = Jenkins.getActiveInstance();
+          ItemGroup parent = activeInstance;
           if (job == null) {
-            job = (WorkflowJob) Jenkins.getActiveInstance().getItemByFullName(jobFullName);
+            job = (WorkflowJob) activeInstance.getItemByFullName(jobFullName);
           }
           boolean newJob = job == null;
           if (newJob) {
             String disableOn = getAnnotation(buildConfig, DISABLE_SYNC_CREATE_ON);
             if (disableOn != null && disableOn.equalsIgnoreCase("jenkins")) {
-              logger.info("Not creating missing jenkins job " + jobFullName + " due to annotation: " + DISABLE_SYNC_CREATE_ON);
+              logger.fine("Not creating missing jenkins job " + jobFullName + " due to annotation: " + DISABLE_SYNC_CREATE_ON);
               return null;
             }
-            job = new WorkflowJob(getFullNameParent(Jenkins.getActiveInstance(), jobFullName), jobName);
+            parent = getFullNameParent(activeInstance, jobFullName, getNamespace(buildConfig));
+            job = new WorkflowJob(parent, jobName);
           }
           BulkChange bk = new BulkChange(job);
-
-          // lets not update the display name of Jobs created by Jenkins
-          if (!Objects.equals("jenkins", OpenShiftUtils.getAnnotation(buildConfig, Annotations.GENERATED_BY))) {
-            job.setDisplayName(jenkinsJobDisplayName(buildConfig));
-          }
 
           FlowDefinition flowFromBuildConfig = mapBuildConfigToFlow(buildConfig);
           if (flowFromBuildConfig == null) {
@@ -228,10 +228,19 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
           InputStream jobStream = new StringInputStream(new XStream2().toXML(job));
 
           if (newJob) {
-            Jenkins.getActiveInstance().createProjectFromXML(
-              jobName,
-              jobStream
-            ).save();
+            if (parent instanceof Folder) {
+              Folder folder = (Folder) parent;
+              folder.createProjectFromXML(
+                jobName,
+                jobStream
+              ).save();
+            } else {
+              activeInstance.createProjectFromXML(
+                jobName,
+                jobStream
+              ).save();
+            }
+
             logger.info("Created job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
           } else {
             Source source = new StreamSource(jobStream);
@@ -243,7 +252,20 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
             }
           }
           bk.commit();
-          putJobWithBuildConfig(Jenkins.getActiveInstance().getItemByFullName(job.getFullName(), WorkflowJob.class), buildConfig);
+          String fullName = job.getFullName();
+          WorkflowJob workflowJob = activeInstance.getItemByFullName(fullName, WorkflowJob.class);
+          if (workflowJob == null && parent instanceof Folder) {
+            // we should never need this but just in case there's an odd timing issue or something...
+            Folder folder = (Folder) parent;
+            folder.add(job, jobName);
+            workflowJob = activeInstance.getItemByFullName(fullName, WorkflowJob.class);
+          }
+          if (workflowJob == null) {
+            logger.warning("Could not find created job " + fullName + " for BuildConfig: " + getNamespace(buildConfig) + "/" + getName(buildConfig));
+          } else {
+            //logger.info((newJob ? "created" : "updated" ) + " job " + fullName + " with path " + jobFullName + " from BuildConfig: " + getNamespace(buildConfig) + "/" + getName(buildConfig));
+            putJobWithBuildConfig(workflowJob, buildConfig);
+          }
           return null;
         }
       });
