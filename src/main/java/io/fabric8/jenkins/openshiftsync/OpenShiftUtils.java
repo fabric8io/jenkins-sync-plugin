@@ -144,7 +144,6 @@ public class OpenShiftUtils {
    * @return the jenkins job name for the given BuildConfig
    */
   public static String jenkinsJobFullName(BuildConfig bc) {
-    ObjectMeta metadata = bc.getMetadata();
     String jobName = getAnnotation(bc, Annotations.JENKINS_JOB_PATH);
     if (StringUtils.isNotBlank(jobName)) {
       return jobName;

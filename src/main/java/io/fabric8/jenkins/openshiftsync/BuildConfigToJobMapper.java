@@ -173,12 +173,10 @@ public class BuildConfigToJobMapper {
         BuildSource source = getOrCreateBuildSource(spec);
         if (scm instanceof GitSCM) {
           if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
-            if (jenkinsPipelineStrategy != null) {
-              if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
-                jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
-              }
-              return true;
+            if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
+              jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
             }
+            return true;
           }
         }
       }

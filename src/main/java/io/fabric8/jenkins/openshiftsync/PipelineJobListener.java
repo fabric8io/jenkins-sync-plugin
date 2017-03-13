@@ -212,7 +212,7 @@ public class PipelineJobListener extends ItemListener {
       String uid = buildConfigProjectProperty.getUid();
       if (metadata != null && StringUtils.isEmpty(uid)) {
         buildConfigProjectProperty.setUid(metadata.getUid());
-      } else if (!Objects.equal(uid, metadata.getUid())) {
+      } else if (metadata != null && !Objects.equal(uid, metadata.getUid())) {
         // the UUIDs are different so lets ignore this BC
         return;
       }
