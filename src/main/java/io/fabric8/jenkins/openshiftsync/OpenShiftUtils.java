@@ -227,6 +227,13 @@ public class OpenShiftUtils {
    */
   public static String getNamespaceOrUseDefault(String configuredNamespace, OpenShiftClient client) {
     String namespace = configuredNamespace;
+    if (namespace != null && namespace.startsWith("${") && namespace.endsWith("}")) {
+      String envVar = namespace.substring(2, namespace.length() - 1);
+      namespace = System.getenv(envVar);
+      if (StringUtils.isBlank(namespace)) {
+        logger.warning("No value defined for namespace environment variable `" + envVar +"`");
+      }
+    }
     if (StringUtils.isBlank(namespace)) {
       namespace = client.getNamespace();
       if (StringUtils.isBlank(namespace)) {
