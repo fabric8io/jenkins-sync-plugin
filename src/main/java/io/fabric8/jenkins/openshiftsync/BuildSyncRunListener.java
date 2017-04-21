@@ -17,8 +17,10 @@ package io.fabric8.jenkins.openshiftsync;
 
 import com.cloudbees.workflow.rest.external.AtomFlowNodeExt;
 import com.cloudbees.workflow.rest.external.FlowNodeExt;
+import com.cloudbees.workflow.rest.external.PendingInputActionsExt;
 import com.cloudbees.workflow.rest.external.RunExt;
 import com.cloudbees.workflow.rest.external.StageNodeExt;
+import com.cloudbees.workflow.rest.external.StatusExt;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hudson.Extension;
@@ -29,13 +31,19 @@ import hudson.model.listeners.RunListener;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.openshift.api.model.Build;
+import io.fabric8.openshift.api.model.BuildFluent;
+import io.fabric8.openshift.api.model.DoneableBuild;
 import jenkins.util.Timer;
 import org.apache.commons.httpclient.HttpStatus;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
+import org.jenkinsci.plugins.workflow.support.steps.input.InputAction;
+import org.jenkinsci.plugins.workflow.support.steps.input.InputStepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +52,7 @@ import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.formatTimestamp;
@@ -212,6 +221,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
     String buildUrl = joinPaths(rootUrl, run.getUrl());
     String logsUrl = joinPaths(buildUrl, "/consoleText");
 
+    boolean pendingInput = false;
     if (!wfRunExt.get_links().self.href.matches("^https?://.*$")) {
       wfRunExt.get_links().self.setHref(joinPaths(rootUrl, wfRunExt.get_links().self.href));
     }
@@ -232,6 +242,10 @@ public class BuildSyncRunListener extends RunListener<Run> {
           nodeLinks.getLog().setHref(joinPaths(rootUrl, nodeLinks.getLog().href));
         }
       }
+      StatusExt status = stage.getStatus();
+      if (status != null && status.equals(StatusExt.PAUSED_PENDING_INPUT)) {
+        pendingInput = true;
+      }
     }
 
     String json;
@@ -242,6 +256,10 @@ public class BuildSyncRunListener extends RunListener<Run> {
       return;
     }
 
+    String pendingActionsJson = null;
+    if (pendingInput && run instanceof WorkflowRun) {
+      pendingActionsJson = getPendingActionsJson((WorkflowRun) run);
+    }
     String phase = runToBuildPhase(run);
 
     long started = getStartTime(run);
@@ -258,11 +276,15 @@ public class BuildSyncRunListener extends RunListener<Run> {
 
     logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), cause.getName(), phase});
     try {
-      getOpenShiftClient().builds().inNamespace(cause.getNamespace()).withName(cause.getName()).edit()
-        .editMetadata()
-        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
-        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
-        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl)
+      BuildFluent.MetadataNested<DoneableBuild> builder = getOpenShiftClient().builds().inNamespace(cause.getNamespace()).withName(cause.getName()).edit()
+              .editMetadata()
+              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
+              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
+              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
+      if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
+        builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
+      }
+      builder
         .endMetadata()
         .editStatus()
         .withPhase(phase)
@@ -276,6 +298,26 @@ public class BuildSyncRunListener extends RunListener<Run> {
       } else {
         throw e;
       }
+    }
+  }
+
+  private String getPendingActionsJson(WorkflowRun run) {
+    List<PendingInputActionsExt> pendingInputActions = new ArrayList<PendingInputActionsExt>();
+    InputAction inputAction = run.getAction(InputAction.class);
+
+    if (inputAction != null) {
+      List<InputStepExecution> executions = inputAction.getExecutions();
+      if (executions != null && !executions.isEmpty()) {
+        for (InputStepExecution inputStepExecution : executions) {
+          pendingInputActions.add(PendingInputActionsExt.create(inputStepExecution, run));
+        }
+      }
+    }
+    try {
+      return new ObjectMapper().writeValueAsString(pendingInputActions);
+    } catch (JsonProcessingException e) {
+      logger.log(SEVERE, "Failed to serialize pending actions. " + e, e);
+      return null;
     }
   }
 
