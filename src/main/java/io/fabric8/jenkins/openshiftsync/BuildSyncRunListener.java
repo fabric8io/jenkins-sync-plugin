@@ -52,6 +52,7 @@ import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
@@ -281,6 +282,10 @@ public class BuildSyncRunListener extends RunListener<Run> {
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
+      String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
+      if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
+        builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE, jenkinsNamespace);
+      }
       if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
         builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
       }
