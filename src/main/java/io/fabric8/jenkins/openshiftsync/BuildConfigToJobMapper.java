@@ -37,6 +37,7 @@ import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.multibranch.BranchJobProperty;
+import org.jenkinsci.plugins.workflow.multibranch.SCMBinder;
 
 import java.io.File;
 import java.io.IOException;
@@ -57,57 +58,7 @@ public class BuildConfigToJobMapper {
     if (!OpenShiftUtils.isJenkinsBuildConfig(bc)) {
       return null;
     }
-
-    BuildConfigSpec spec = bc.getSpec();
-    BuildSource source = null;
-    String jenkinsfile = null;
-    String jenkinsfilePath = null;
-    if (spec != null) {
-      source = spec.getSource();
-      BuildStrategy strategy = spec.getStrategy();
-      if (strategy != null) {
-        JenkinsPipelineBuildStrategy jenkinsPipelineStrategy = strategy.getJenkinsPipelineStrategy();
-        if (jenkinsPipelineStrategy != null) {
-          jenkinsfile = jenkinsPipelineStrategy.getJenkinsfile();
-          jenkinsfilePath = jenkinsPipelineStrategy.getJenkinsfilePath();
-        }
-      }
-    }
-    if (jenkinsfile == null) {
-      // Is this a Jenkinsfile from Git SCM?
-      if (source != null &&
-        source.getGit() != null &&
-        source.getGit().getUri() != null) {
-        if (jenkinsfilePath == null) {
-          jenkinsfilePath = DEFAULT_JENKINS_FILEPATH;
-        }
-        if (!isEmpty(source.getContextDir())) {
-          jenkinsfilePath = new File(source.getContextDir(), jenkinsfilePath).getPath();
-        }
-        GitBuildSource gitSource = source.getGit();
-        String branchRef = gitSource.getRef();
-        List<BranchSpec> branchSpecs = Collections.emptyList();
-        if (isNotBlank(branchRef)) {
-          branchSpecs = Collections.singletonList(new BranchSpec(branchRef));
-        }
-        String credentialsId = updateSourceCredentials(bc);
-        GitSCM scm = new GitSCM(
-          Collections.singletonList(new UserRemoteConfig(gitSource.getUri(), null, null, credentialsId)),
-          branchSpecs,
-          false,
-          Collections.<SubmoduleConfig>emptyList(),
-          null,
-          null,
-          Collections.<GitSCMExtension>emptyList()
-          );
-        return new CpsScmFlowDefinition(scm, jenkinsfilePath);
-      } else {
-        LOGGER.warning("BuildConfig does not contain source repository information - cannot map BuildConfig to Jenkins job");
-        return null;
-      }
-    } else {
-      return new CpsFlowDefinition(jenkinsfile, true);
-    }
+    return new SCMBinder();
   }
 
   /**
@@ -127,13 +78,31 @@ public class BuildConfigToJobMapper {
         jenkinsPipelineStrategy = strategy.getJenkinsPipelineStrategy();
       }
     }
-
     if (jenkinsPipelineStrategy == null) {
       LOGGER.warning("No jenkinsPipelineStrategy available in the BuildConfig " + namespaceName);
       return false;
     }
-
     FlowDefinition definition = job.getDefinition();
+
+    // support multi-branch or github organisation jobs
+    BranchJobProperty property = job.getProperty(BranchJobProperty.class);
+    if (property != null) {
+      Branch branch = property.getBranch();
+      if (branch != null) {
+        String ref = branch.getName();
+        SCM scm = branch.getScm();
+        BuildSource source = getOrCreateBuildSource(spec);
+        if (definition instanceof SCMBinder) {
+          if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
+            if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
+              jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
+            }
+            return true;
+          }
+        }
+      }
+    }
+
     if (definition instanceof CpsScmFlowDefinition) {
       CpsScmFlowDefinition cpsScmFlowDefinition = (CpsScmFlowDefinition) definition;
       String scriptPath = cpsScmFlowDefinition.getScriptPath();
@@ -161,25 +130,6 @@ public class BuildConfigToJobMapper {
         return true;
       }
       return false;
-    }
-
-    // support multi-branch or github organisation jobs
-    BranchJobProperty property = job.getProperty(BranchJobProperty.class);
-    if (property != null) {
-      Branch branch = property.getBranch();
-      if (branch != null) {
-        String ref = branch.getName();
-        SCM scm = branch.getScm();
-        BuildSource source = getOrCreateBuildSource(spec);
-        if (scm instanceof GitSCM) {
-          if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
-            if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
-              jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
-            }
-            return true;
-          }
-        }
-      }
     }
     
     LOGGER.warning("Cannot update BuildConfig " + namespaceName + " as the definition is of class " + (definition == null ? "null" : definition.getClass().getName()));

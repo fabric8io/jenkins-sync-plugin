@@ -195,8 +195,11 @@ public class PipelineJobListener extends ItemListener {
 
   private void upsertBuildConfigForJob(WorkflowJob job, BuildConfigProjectProperty buildConfigProjectProperty) {
     boolean create = false;
+    String jobName = buildConfigProjectProperty.getName();
     BuildConfig jobBuildConfig = getOpenShiftClient().buildConfigs().
-            inNamespace(buildConfigProjectProperty.getNamespace()).withName(buildConfigProjectProperty.getName()).get();
+            inNamespace(buildConfigProjectProperty.getNamespace()).withName(jobName).get();
+
+
     if (jobBuildConfig == null) {
       create = true;
       jobBuildConfig = new BuildConfigBuilder().
@@ -228,7 +231,6 @@ public class PipelineJobListener extends ItemListener {
     if (create) {
       OpenShiftUtils.addAnnotation(jobBuildConfig, Annotations.JENKINS_JOB_PATH, JenkinsUtils.getFullJobName(job));
     }
-    
     if (create) {
       try {
         BuildConfig bc = getOpenShiftClient().buildConfigs().inNamespace(jobBuildConfig.getMetadata().getNamespace()).create(jobBuildConfig);
