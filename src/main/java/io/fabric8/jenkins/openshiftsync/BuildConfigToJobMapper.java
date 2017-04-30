@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Annotations.GENERATED_BY;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
 import static org.apache.commons.lang.StringUtils.isEmpty;
 import static org.apache.commons.lang.StringUtils.isNotBlank;
@@ -58,6 +59,13 @@ public class BuildConfigToJobMapper {
 		if (!OpenShiftUtils.isPipelineStrategyBuildConfig(bc)) {
 			return null;
 		}
+
+    // if the BC was created by jenkins then default to the SCMBinder
+    String generatedBy = bc.getMetadata().getAnnotations().get(GENERATED_BY);
+    if (generatedBy != null && generatedBy.equals("jenkins")){
+      // TODO: Enable SCMBuilder();
+      //return new SCMBinder();
+    }
 
 		BuildConfigSpec spec = bc.getSpec();
 		BuildSource source = null;
@@ -183,6 +191,7 @@ public class BuildConfigToJobMapper {
 				String ref = branch.getName();
 				SCM scm = branch.getScm();
 				BuildSource source = getOrCreateBuildSource(spec);
+        // TODO: add instanceof SCMBuilder;
 				if (scm instanceof GitSCM) {
 					if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
 						if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {

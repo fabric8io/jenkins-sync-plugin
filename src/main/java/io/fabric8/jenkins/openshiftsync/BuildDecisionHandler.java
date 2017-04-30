@@ -54,21 +54,18 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
                     && StringUtils.isNotBlank(buildConfigProjectProperty
                             .getName())) {
 
-                String namespace = buildConfigProjectProperty.getNamespace();
-                String jobURL = joinPaths(
-                        getJenkinsURL(getAuthenticatedOpenShiftClient(),
-                                namespace), wj.getUrl());
+                String namespace = new GlobalPluginConfiguration().getNamespace();
+                String jobName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(wj));
+                String jobURL = joinPaths(getJenkinsURL(getAuthenticatedOpenShiftClient(), namespace), wj.getUrl());
 
                 Build ret = getAuthenticatedOpenShiftClient()
                         .buildConfigs()
                         .inNamespace(namespace)
-                        .withName(buildConfigProjectProperty.getName())
+                        .withName(jobName)
                         .instantiate(
                                 new BuildRequestBuilder()
                                         .withNewMetadata()
-                                        .withName(
-                                                buildConfigProjectProperty
-                                                        .getName())
+                                        .withName(jobName)
                                         .and()
                                         .addNewTriggeredBy()
                                         .withMessage(
