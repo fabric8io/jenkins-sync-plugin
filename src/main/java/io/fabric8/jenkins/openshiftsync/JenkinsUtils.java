@@ -410,6 +410,7 @@ public class JenkinsUtils {
     if (name.endsWith(masterSuffix) && name.length() > masterSuffix.length()) {
       name = name.substring(0, name.length() - masterSuffix.length());
     }
+
     return name;
   }
 }

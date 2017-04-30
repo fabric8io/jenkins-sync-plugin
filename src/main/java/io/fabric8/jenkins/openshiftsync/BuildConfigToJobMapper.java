@@ -37,6 +37,7 @@ import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.multibranch.BranchJobProperty;
+import org.jenkinsci.plugins.workflow.multibranch.SCMBinder;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,6 +45,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Annotations.GENERATED_BY;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
 import static org.apache.commons.lang.StringUtils.isEmpty;
 import static org.apache.commons.lang.StringUtils.isNotBlank;
@@ -56,6 +58,12 @@ public class BuildConfigToJobMapper {
   public static FlowDefinition mapBuildConfigToFlow(BuildConfig bc) throws IOException {
     if (!OpenShiftUtils.isJenkinsBuildConfig(bc)) {
       return null;
+    }
+
+    // if the BC was created by jenkins then default to the SCMBinder
+    String generatedBy = bc.getMetadata().getAnnotations().get(GENERATED_BY);
+    if (generatedBy != null && generatedBy.equals("jenkins")){
+      return new SCMBinder();
     }
 
     BuildConfigSpec spec = bc.getSpec();
@@ -99,7 +107,7 @@ public class BuildConfigToJobMapper {
           null,
           null,
           Collections.<GitSCMExtension>emptyList()
-          );
+        );
         return new CpsScmFlowDefinition(scm, jenkinsfilePath);
       } else {
         LOGGER.warning("BuildConfig does not contain source repository information - cannot map BuildConfig to Jenkins job");
@@ -127,13 +135,12 @@ public class BuildConfigToJobMapper {
         jenkinsPipelineStrategy = strategy.getJenkinsPipelineStrategy();
       }
     }
-
     if (jenkinsPipelineStrategy == null) {
       LOGGER.warning("No jenkinsPipelineStrategy available in the BuildConfig " + namespaceName);
       return false;
     }
-
     FlowDefinition definition = job.getDefinition();
+
     if (definition instanceof CpsScmFlowDefinition) {
       CpsScmFlowDefinition cpsScmFlowDefinition = (CpsScmFlowDefinition) definition;
       String scriptPath = cpsScmFlowDefinition.getScriptPath();
@@ -171,7 +178,7 @@ public class BuildConfigToJobMapper {
         String ref = branch.getName();
         SCM scm = branch.getScm();
         BuildSource source = getOrCreateBuildSource(spec);
-        if (scm instanceof GitSCM) {
+        if (scm instanceof GitSCM || definition instanceof SCMBinder) {
           if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
             if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
               jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
@@ -181,7 +188,7 @@ public class BuildConfigToJobMapper {
         }
       }
     }
-    
+
     LOGGER.warning("Cannot update BuildConfig " + namespaceName + " as the definition is of class " + (definition == null ? "null" : definition.getClass().getName()));
     return false;
   }

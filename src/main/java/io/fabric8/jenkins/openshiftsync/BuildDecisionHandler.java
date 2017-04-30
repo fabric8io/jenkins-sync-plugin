@@ -25,6 +25,7 @@ import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
 import java.util.List;
+import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getJenkinsURL;
@@ -37,24 +38,20 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   public boolean shouldSchedule(Queue.Task p, List<Action> actions) {
     if (p instanceof WorkflowJob && !isOpenShiftBuildCause(actions)) {
       WorkflowJob wj = (WorkflowJob) p;
-      BuildConfigProjectProperty buildConfigProjectProperty = wj.getProperty(BuildConfigProjectProperty.class);
-      if (buildConfigProjectProperty != null
-        && StringUtils.isNotBlank(buildConfigProjectProperty.getNamespace())
-        && StringUtils.isNotBlank(buildConfigProjectProperty.getName())) {
 
-        String namespace = buildConfigProjectProperty.getNamespace();
-        String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
+      String namespace = new GlobalPluginConfiguration().getNamespace();
+      String jobName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(wj));
+      String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
 
-        getOpenShiftClient().buildConfigs()
-          .inNamespace(namespace).withName(buildConfigProjectProperty.getName())
-          .instantiate(
-            new BuildRequestBuilder()
-              .withNewMetadata().withName(buildConfigProjectProperty.getName()).and()
-              .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
-              .build()
-          );
-        return false;
-      }
+      getOpenShiftClient().buildConfigs()
+        .inNamespace(namespace).withName(jobName)
+        .instantiate(
+          new BuildRequestBuilder()
+            .withNewMetadata().withName(jobName).and()
+            .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
+            .build()
+        );
+      return false;
     }
 
     return true;
