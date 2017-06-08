@@ -16,28 +16,38 @@
 package io.fabric8.jenkins.openshiftsync;
 
 import com.cloudbees.hudson.plugins.folder.Folder;
+import com.google.common.base.Strings;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.BulkChange;
+import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.model.Job;
 import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
+import hudson.util.DescribableList;
 import hudson.util.XStream2;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigList;
+import jenkins.branch.OrganizationFolder;
 import jenkins.model.Jenkins;
+import jenkins.scm.api.SCMNavigator;
+import jenkins.scm.api.SCMNavigatorDescriptor;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 import jenkins.util.Timer;
+import org.apache.commons.beanutils.BeanUtilsBean;
 import org.apache.tools.ant.filters.StringInputStream;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
+import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -288,15 +298,57 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
       ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
         @Override
         public Void call() throws Exception {
+          ItemGroup parent = job.getParent();
           try {
             job.delete();
           } finally {
             removeJobWithBuildConfig(buildConfig);
             Jenkins.getActiveInstance().rebuildDependencyGraphAsync();
           }
+          if (parent instanceof Item) {
+            removeBuildConfigJobFromFolderPluginJob((Item) parent, buildConfig, job);
+          }
           return null;
         }
       });
+    }
+  }
+
+  private void removeBuildConfigJobFromFolderPluginJob(Item parent, BuildConfig buildConfig, Job job) {
+    if (parent instanceof OrganizationFolder) {
+      OrganizationFolder organizationFolder = (OrganizationFolder) parent;
+      DescribableList<SCMNavigator, SCMNavigatorDescriptor> navigators = organizationFolder.getNavigators();
+      if (navigators != null) {
+        for (SCMNavigator navigator : navigators) {
+          if (navigator.getClass().getName().equals("org.jenkinsci.plugins.github_branch_source.GitHubSCMNavigator")) {
+            // lets try get the pattern property
+            BeanUtilsBean converter = new BeanUtilsBean();
+            String pattern = null;
+            try {
+              pattern = converter.getProperty(navigator, "pattern");
+            } catch (Exception e) {
+              logger.warning("Could not get pattern of navigator " + navigator + " due to: " + e);
+            }
+            ObjectMeta metadata = buildConfig.getMetadata();
+            if (!Strings.isNullOrEmpty(pattern) && metadata != null) {
+              String name = metadata.getName();
+              String newPattern = JenkinsUtils.removePattern(pattern, name);
+              if (newPattern != null) {
+                try {
+                  converter.setProperty(navigator, "pattern", newPattern);
+                } catch (Exception e) {
+                  logger.warning("Could not update pattern of navigator " + navigator + " to " + pattern + " due to: " + e);
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (parent != null) {
+      ItemGroup<? extends Item> grandParent = parent.getParent();
+      if (grandParent instanceof Item) {
+        removeBuildConfigJobFromFolderPluginJob((Item) grandParent, buildConfig, job);
+      }
     }
   }
 }
