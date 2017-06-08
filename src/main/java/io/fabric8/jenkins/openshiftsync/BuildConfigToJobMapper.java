@@ -37,6 +37,7 @@ import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.multibranch.BranchJobProperty;
+import org.jenkinsci.plugins.workflow.multibranch.WorkflowBranchProjectFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -63,8 +64,7 @@ public class BuildConfigToJobMapper {
     // if the BC was created by jenkins then default to the SCMBinder
     String generatedBy = bc.getMetadata().getAnnotations().get(GENERATED_BY);
     if (generatedBy != null && generatedBy.equals("jenkins")){
-      // TODO: Enable SCMBuilder();
-      //return new SCMBinder();
+      return new ExposeSCMBinderHack().createDefinition();
     }
 
 		BuildConfigSpec spec = bc.getSpec();
@@ -113,6 +113,13 @@ public class BuildConfigToJobMapper {
 			return new CpsFlowDefinition(jenkinsfile, true);
 		}
 	}
+
+  protected static class ExposeSCMBinderHack extends WorkflowBranchProjectFactory {
+    @Override
+    public FlowDefinition createDefinition() {
+      return super.createDefinition();
+    }
+  }
 
 	/**
 	 * Updates the {@link BuildConfig} if the Jenkins {@link WorkflowJob} changes
@@ -191,22 +198,34 @@ public class BuildConfigToJobMapper {
 				String ref = branch.getName();
 				SCM scm = branch.getScm();
 				BuildSource source = getOrCreateBuildSource(spec);
-        // TODO: add instanceof SCMBuilder;
-				if (scm instanceof GitSCM) {
-					if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
-						if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
-							jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
-						}
-						return true;
-					}
-				}
+        // TODO if its not a GitSCM then this line could classcast so
+        // am guessing we don't need to || with if its an SCMBinder?
+        //
+        //if (scm instanceof GitSCM || isSCMBinder(definition)) {
+        if (scm instanceof GitSCM) {
+          if (populateFromGitSCM(buildConfig, source, (GitSCM) scm, ref)) {
+            if (StringUtils.isEmpty(jenkinsPipelineStrategy.getJenkinsfilePath())) {
+              jenkinsPipelineStrategy.setJenkinsfilePath("Jenkinsfile");
+            }
+            return true;
+          }
+        }
 			}
 		}
+
 
 		LOGGER.warning("Cannot update BuildConfig " + namespaceName + " as the definition is of class "
 				+ (definition == null ? "null" : definition.getClass().getName()));
 		return false;
 	}
+
+  private static boolean isSCMBinder(FlowDefinition definition) {
+    if (definition != null) {
+      Class<? extends FlowDefinition> aClass = definition.getClass();
+      return aClass.getName().equals("org.jenkinsci.plugins.workflow.multibranch.SCMBinder");
+    }
+    return false;
+  }
 
 	private static boolean populateFromGitSCM(BuildConfig buildConfig, BuildSource source, GitSCM gitSCM, String ref) {
 		source.setType("Git");
