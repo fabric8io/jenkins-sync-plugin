@@ -48,6 +48,7 @@ import java.util.logging.Logger;
 import static io.fabric8.jenkins.openshiftsync.Annotations.GENERATED_BY;
 import static io.fabric8.jenkins.openshiftsync.Annotations.GROOVY_SANDBOX;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
+import static io.fabric8.jenkins.openshiftsync.EnvironmentVariables.OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.addAnnotation;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAnnotation;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.removeAnnotation;
@@ -121,8 +122,11 @@ public class BuildConfigToJobMapper {
       boolean sandbox = true;
       String sandboxFlag = getAnnotation(bc, GROOVY_SANDBOX);
       if (sandboxFlag != null && sandboxFlag.equalsIgnoreCase("false")) {
-        // TODO should we allow this to be disabled for security purposes?
-        sandbox = false;
+        // lets only allow this if this env var is specified
+        String allowed = System.getenv(OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED);
+        if (allowed != null && allowed.equalsIgnoreCase("true")) {
+          sandbox = false;
+        }
       }
       return new CpsFlowDefinition(jenkinsfile, sandbox);
     }
