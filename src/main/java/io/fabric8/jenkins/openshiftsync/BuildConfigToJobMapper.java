@@ -60,12 +60,6 @@ public class BuildConfigToJobMapper {
       return null;
     }
 
-    // if the BC was created by jenkins then default to the SCMBinder
-    String generatedBy = bc.getMetadata().getAnnotations().get(GENERATED_BY);
-    if (generatedBy != null && generatedBy.equals("jenkins")){
-      return new ExposeSCMBinderHack().createDefinition();
-    }
-
     BuildConfigSpec spec = bc.getSpec();
     BuildSource source = null;
     String jenkinsfile = null;
@@ -81,7 +75,13 @@ public class BuildConfigToJobMapper {
         }
       }
     }
-    if (jenkinsfile == null) {
+    if (jenkinsfile == null || jenkinsfile.trim().length() == 0) {
+      // if the BC was created by jenkins then default to the SCMBinder
+      String generatedBy = bc.getMetadata().getAnnotations().get(GENERATED_BY);
+      if (generatedBy != null && generatedBy.equals("jenkins")){
+        return new ExposeSCMBinderHack().createDefinition();
+      }
+
       // Is this a Jenkinsfile from Git SCM?
       if (source != null &&
         source.getGit() != null &&
