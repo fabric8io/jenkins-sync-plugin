@@ -21,4 +21,5 @@ public class Annotations {
     public static final String JENKINS_JOB_PATH = "jenkins.openshift.org/job-path";
     public static final String GENERATED_BY = "jenkins.openshift.org/generated-by";
     public static final String DISABLE_SYNC_CREATE_ON = "jenkins.openshift.org/disable-sync-create-on";
+    public static final String GROOVY_SANDBOX = "jenkins.openshift.org/groovy-sandbox";
 }

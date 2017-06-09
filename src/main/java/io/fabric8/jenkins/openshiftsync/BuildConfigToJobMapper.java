@@ -46,7 +46,11 @@ import java.util.List;
 import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.Annotations.GENERATED_BY;
+import static io.fabric8.jenkins.openshiftsync.Annotations.GROOVY_SANDBOX;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.addAnnotation;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAnnotation;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.removeAnnotation;
 import static org.apache.commons.lang.StringUtils.isEmpty;
 import static org.apache.commons.lang.StringUtils.isNotBlank;
 
@@ -114,7 +118,13 @@ public class BuildConfigToJobMapper {
         return null;
       }
     } else {
-      return new CpsFlowDefinition(jenkinsfile, true);
+      boolean sandbox = true;
+      String sandboxFlag = getAnnotation(bc, GROOVY_SANDBOX);
+      if (sandboxFlag != null && sandboxFlag.equalsIgnoreCase("false")) {
+        // TODO should we allow this to be disabled for security purposes?
+        sandbox = false;
+      }
+      return new CpsFlowDefinition(jenkinsfile, sandbox);
     }
   }
 
@@ -169,6 +179,12 @@ public class BuildConfigToJobMapper {
 
     if (definition instanceof CpsFlowDefinition) {
       CpsFlowDefinition cpsFlowDefinition = (CpsFlowDefinition) definition;
+      boolean sandbox = cpsFlowDefinition.isSandbox();
+      if (sandbox) {
+        removeAnnotation(buildConfig, GROOVY_SANDBOX);
+      } else {
+        addAnnotation(buildConfig, GROOVY_SANDBOX, "false");
+      }
       String jenkinsfile = cpsFlowDefinition.getScript();
       if (jenkinsfile != null && jenkinsfile.trim().length() > 0) {
         jenkinsPipelineStrategy.setJenkinsfile(jenkinsfile);
