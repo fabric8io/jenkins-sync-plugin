@@ -47,7 +47,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static io.fabric8.jenkins.openshiftsync.Annotations.DISABLE_SYNC_CREATE;
+import static io.fabric8.jenkins.openshiftsync.Annotations.DISABLE_SYNC_CREATE_ON;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.getJobFromBuildConfig;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.initializeBuildConfigToJobMap;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.putJobWithBuildConfig;
@@ -251,13 +251,13 @@ public class BuildConfigWatcher extends BaseWatcher implements
                                 boolean newJob = job == null;
                                 if (newJob) {
                                     String disableOn = getAnnotation(
-                                            buildConfig, DISABLE_SYNC_CREATE);
+                                            buildConfig, DISABLE_SYNC_CREATE_ON);
                                     if (disableOn != null
                                             && disableOn.length() > 0) {
                                         logger.fine("Not creating missing jenkins job "
                                                 + jobFullName
                                                 + " due to annotation: "
-                                                + DISABLE_SYNC_CREATE);
+                                                + DISABLE_SYNC_CREATE_ON);
                                         return null;
                                     }
                                     parent = getFullNameParent(activeInstance,

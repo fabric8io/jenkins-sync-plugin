@@ -22,6 +22,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import com.google.common.base.Strings;
 import hudson.model.ItemGroup;
 import hudson.BulkChange;
 import hudson.model.Item;
@@ -63,6 +64,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -357,10 +359,16 @@ public class OpenShiftUtils {
 			if (service != null) {
 				ServiceSpec spec = service.getSpec();
 				if (spec != null) {
-					String host = spec.getClusterIP();
-					if (host != null && host.length() > 0) {
-						return defaultProtocolText + host;
-					}
+				  // For kubernetes support
+          List<String> externalIPs = spec.getExternalIPs();
+          if(externalIPs != null) {
+            for(String externalIP: externalIPs) {
+              if (!Strings.isNullOrEmpty(externalIP)) {
+                return defaultProtocolText + externalIP;
+              }
+            }
+          }
+
 				}
 			}
 		} catch (Exception e) {
