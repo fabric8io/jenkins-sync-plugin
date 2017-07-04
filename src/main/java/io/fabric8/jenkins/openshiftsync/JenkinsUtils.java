@@ -26,12 +26,18 @@ import hudson.plugins.git.RevisionParameterAction;
 import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
+import io.fabric8.kubernetes.client.Watch;
+import io.fabric8.kubernetes.client.Watcher;
+import io.fabric8.kubernetes.client.dsl.FilterWatchListDeletable;
 import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildBuilder;
 import io.fabric8.openshift.api.model.BuildConfig;
+import io.fabric8.openshift.api.model.BuildList;
 import io.fabric8.openshift.api.model.GitBuildSource;
 import io.fabric8.openshift.api.model.GitSourceRevision;
 import io.fabric8.openshift.api.model.SourceRevision;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.model.Jenkins;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 import jenkins.util.Timer;
@@ -302,8 +308,13 @@ public class JenkinsUtils {
     if (bcp == null) {
       return;
     }
-    List<Build> builds = getOpenShiftClient().builds().inNamespace(bcp.getNamespace())
-      .withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW).withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName()).list().getItems();
+    OpenShiftClient openShiftClient = getOpenShiftClient();
+    FilterWatchListDeletable<Build, BuildList, Boolean, Watch, Watcher<Build>> resource = openShiftClient.builds().
+            inNamespace(bcp.getNamespace()).withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName());
+    if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+      resource = resource.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW);
+    }
+    List<Build> builds = resource.list().getItems();
     handleBuildList(job, builds, bcp);
   }
 

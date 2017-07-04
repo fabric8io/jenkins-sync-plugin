@@ -60,16 +60,18 @@ public class SecretWatcher implements Watcher<Secret> {
     Runnable task = new SafeTimerTask() {
       @Override
       public void doRun() {
-        try {
-          logger.fine("listing Secrets resources");
-          final SecretList secrets = getOpenShiftClient().secrets().inNamespace(namespace).withLabel(LABEL_JENKINS, VALUE_SYNC).list();
-          onInitialSecrets(secrets);
-          logger.fine("handled Secrets resources");
-          if (secretWatch == null) {
-            secretWatch = getOpenShiftClient().secrets().inNamespace(namespace).withLabel(LABEL_JENKINS, VALUE_SYNC).withResourceVersion(secrets.getMetadata().getResourceVersion()).watch(SecretWatcher.this);
+        if (namespace != null && namespace.length() > 0) {
+          try {
+            logger.fine("listing Secrets resources");
+            final SecretList secrets = getOpenShiftClient().secrets().inNamespace(namespace).withLabel(LABEL_JENKINS, VALUE_SYNC).list();
+            onInitialSecrets(secrets);
+            logger.fine("handled Secrets resources");
+            if (secretWatch == null) {
+              secretWatch = getOpenShiftClient().secrets().inNamespace(namespace).withLabel(LABEL_JENKINS, VALUE_SYNC).withResourceVersion(secrets.getMetadata().getResourceVersion()).watch(SecretWatcher.this);
+            }
+          } catch (Exception e) {
+            logger.log(SEVERE, "Failed to load Secrets: " + e, e);
           }
-        } catch (Exception e) {
-          logger.log(SEVERE, "Failed to load Secrets: " + e, e);
         }
       }
     };

@@ -32,6 +32,7 @@ import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigList;
+import io.fabric8.openshift.api.model.BuildConfigSpec;
 import jenkins.branch.OrganizationFolder;
 import jenkins.model.Jenkins;
 import jenkins.scm.api.SCMNavigator;
@@ -49,6 +50,7 @@ import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -215,7 +217,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
               newProperty.getUid().equals(buildConfigProjectProperty.getUid()) &&
               newProperty.getNamespace().equals(buildConfigProjectProperty.getNamespace()) &&
               newProperty.getName().equals(buildConfigProjectProperty.getName()) &&
-              newProperty.getBuildRunPolicy().equals(buildConfigProjectProperty.getBuildRunPolicy())
+              Objects.equals(newProperty.getBuildRunPolicy(), buildConfigProjectProperty.getBuildRunPolicy())
               ) {
               return null;
             }
@@ -230,10 +232,16 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
             );
           }
 
-          job.setConcurrentBuild(
-            !(buildConfig.getSpec().getRunPolicy().equals(SERIAL) ||
-              buildConfig.getSpec().getRunPolicy().equals(SERIAL_LATEST_ONLY))
-          );
+          BuildConfigSpec spec = buildConfig.getSpec();
+          if (spec != null) {
+            String runPolicy = spec.getRunPolicy();
+            if (runPolicy != null) {
+              job.setConcurrentBuild(
+                      !(runPolicy.equals(SERIAL) ||
+                              runPolicy.equals(SERIAL_LATEST_ONLY))
+              );
+            }
+          }
 
           InputStream jobStream = new StringInputStream(new XStream2().toXML(job));
 

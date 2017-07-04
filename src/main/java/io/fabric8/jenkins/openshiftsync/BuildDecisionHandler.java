@@ -21,11 +21,11 @@ import hudson.model.Cause;
 import hudson.model.CauseAction;
 import hudson.model.Queue;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
-import org.apache.commons.lang.StringUtils;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
 import java.util.List;
-import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getJenkinsURL;
@@ -38,12 +38,18 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   public boolean shouldSchedule(Queue.Task p, List<Action> actions) {
     if (p instanceof WorkflowJob && !isOpenShiftBuildCause(actions)) {
       WorkflowJob wj = (WorkflowJob) p;
-
       String namespace = new GlobalPluginConfiguration().getNamespace();
-      String jobName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(wj));
+      String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
+      String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
       String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
 
-      getOpenShiftClient().buildConfigs()
+      OpenShiftClient openShiftClient = getOpenShiftClient();
+      // if we have the build.openshift.io API Group but don't have S2I then we don't have the
+      // OpenShift build subsystem so lets just default to regular Jenkins jobs
+      if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+        return true;
+      }
+      openShiftClient.buildConfigs()
         .inNamespace(namespace).withName(jobName)
         .instantiate(
           new BuildRequestBuilder()

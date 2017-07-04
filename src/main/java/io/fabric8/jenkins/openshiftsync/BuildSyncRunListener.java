@@ -24,17 +24,23 @@ import com.cloudbees.workflow.rest.external.StatusExt;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hudson.Extension;
+import hudson.model.Job;
 import hudson.model.Result;
 import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.model.listeners.RunListener;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.client.KubernetesClientException;
+import io.fabric8.kubernetes.client.dsl.LogWatch;
 import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildFluent;
 import io.fabric8.openshift.api.model.DoneableBuild;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
+import io.fabric8.openshift.client.dsl.BuildResource;
 import jenkins.util.Timer;
 import org.apache.commons.httpclient.HttpStatus;
+import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.support.steps.input.InputAction;
 import org.jenkinsci.plugins.workflow.support.steps.input.InputStepExecution;
@@ -50,11 +56,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_NUMBER;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON;
+import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.getBuildConfigName;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.formatTimestamp;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
@@ -77,6 +85,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
   private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
 
   private transient AtomicBoolean timerStarted = new AtomicBoolean(false);
+  private Boolean kubernetesCluster;
 
   public BuildSyncRunListener() {
     init();
@@ -214,11 +223,28 @@ public class BuildSyncRunListener extends RunListener<Run> {
     }
 
     BuildCause cause = (BuildCause) run.getCause(BuildCause.class);
-    if (cause == null) {
+    if (isKubernetesCluster()) {
+      if (cause == null) {
+        Job parent = run.getParent();
+        if (parent instanceof WorkflowJob) {
+          WorkflowJob workflowJob = (WorkflowJob) parent;
+          String buildConfigName = getBuildConfigName(workflowJob);
+          String buildName = buildConfigName + "-" + run.getId();
+          String uid = null;
+          String gitUrl = null;
+          String commit = null;
+          String buildConfigUid = null;
+          cause = new BuildCause(uid, namespace, buildName, gitUrl, commit, buildConfigUid);
+        } else {
+          return;
+        }
+      }
+    } else if (cause == null) {
       return;
     }
 
-    String rootUrl = OpenShiftUtils.getJenkinsURL(getOpenShiftClient(), namespace);
+    OpenShiftClient openShiftClient = getOpenShiftClient();
+    String rootUrl = OpenShiftUtils.getJenkinsURL(openShiftClient, namespace);
     String buildUrl = joinPaths(rootUrl, run.getUrl());
     String logsUrl = joinPaths(buildUrl, "/consoleText");
 
@@ -275,10 +301,15 @@ public class BuildSyncRunListener extends RunListener<Run> {
       }
     }
 
-    logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), cause.getName(), phase});
+    String name = cause.getName();
+    logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), name, phase});
     try {
-      BuildFluent.MetadataNested<DoneableBuild> builder = getOpenShiftClient().builds().inNamespace(cause.getNamespace()).withName(cause.getName()).edit()
-              .editMetadata()
+      BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
+      BuildFluent.MetadataNested<DoneableBuild> builder = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)
+              ? resource.edit().editMetadata() :
+              resource.createOrReplaceWithNew().withNewMetadata().withName(name).addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
+
+      builder
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
               .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
@@ -291,7 +322,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
       }
       builder
         .endMetadata()
-        .editStatus()
+        .editOrNewStatus()
         .withPhase(phase)
         .withStartTimestamp(startTime)
         .withCompletionTimestamp(completionTime)
@@ -365,6 +396,13 @@ public class BuildSyncRunListener extends RunListener<Run> {
    * @return true if the should poll the status of this build run
    */
   protected boolean shouldPollRun(Run run) {
-    return run instanceof WorkflowRun && run.getCause(BuildCause.class) != null;
+    return run instanceof WorkflowRun && (run.getCause(BuildCause.class) != null || isKubernetesCluster());
+  }
+
+  private boolean isKubernetesCluster() {
+    if (kubernetesCluster == null) {
+      kubernetesCluster = !getOpenShiftClient().supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
+    }
+    return kubernetesCluster;
   }
 }
