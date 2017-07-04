@@ -46,6 +46,7 @@ import io.fabric8.openshift.api.model.Route;
 import io.fabric8.openshift.api.model.RouteList;
 import io.fabric8.openshift.api.model.RouteSpec;
 import io.fabric8.openshift.client.DefaultOpenShiftClient;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
 import io.fabric8.openshift.client.OpenShiftConfigBuilder;
 
@@ -334,29 +335,39 @@ public class OpenShiftUtils {
 	 */
 	public static String getExternalServiceUrl(OpenShiftClient openShiftClient, String defaultProtocolText,
 			String namespace, String serviceName) {
-		try {
-			RouteList routes = openShiftClient.routes().inNamespace(namespace).list();
-			for (Route route : routes.getItems()) {
-				RouteSpec spec = route.getSpec();
-				if (spec != null && spec.getTo() != null && "Service".equalsIgnoreCase(spec.getTo().getKind())
-						&& serviceName.equalsIgnoreCase(spec.getTo().getName())) {
-					String host = spec.getHost();
-					if (host != null && host.length() > 0) {
-						if (spec.getTls() != null) {
-							return "https://" + host;
-						}
-						return "http://" + host;
-					}
-				}
-			}
-		} catch (Exception e) {
-			logger.log(Level.WARNING, "Could not find Route for service " + namespace + "/" + serviceName + ". " + e,
-					e);
-		}
-		// lets try the portalIP instead
+    if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.ROUTE)) {
+      try {
+        RouteList routes = openShiftClient.routes().inNamespace(namespace).list();
+        for (Route route : routes.getItems()) {
+          RouteSpec spec = route.getSpec();
+          if (spec != null && spec.getTo() != null && "Service".equalsIgnoreCase(spec.getTo().getKind())
+              && serviceName.equalsIgnoreCase(spec.getTo().getName())) {
+            String host = spec.getHost();
+            if (host != null && host.length() > 0) {
+              if (spec.getTls() != null) {
+                return "https://" + host;
+              }
+              return "http://" + host;
+            }
+          }
+        }
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Could not find Route for service " + namespace + "/" + serviceName + ". " + e,
+            e);
+      }
+    }
+
+    // lets try the portalIP instead
 		try {
 			Service service = openShiftClient.services().inNamespace(namespace).withName(serviceName).get();
 			if (service != null) {
+        // if exposecontroller is being used
+        // see: https://github.com/fabric8io/exposecontroller/blob/master/README.md
+        String answer = getAnnotation(service, Annotations.FABRIC8_EXPOSE_URL);
+        if (answer != null) {
+          return answer;
+        }
+
 				ServiceSpec spec = service.getSpec();
 				if (spec != null) {
 				  // For kubernetes support

@@ -25,6 +25,8 @@ import hudson.model.Queue;
 import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
 
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
@@ -55,10 +57,17 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
                             .getName())) {
 
                 String namespace = new GlobalPluginConfiguration().getNamespace();
-                String jobName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(wj));
+                String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
+                String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
+                //String jobName = OpenShiftUtils.convertNameToValidResourceName(JenkinsUtils.getBuildConfigName(wj));
                 String jobURL = joinPaths(getJenkinsURL(getAuthenticatedOpenShiftClient(), namespace), wj.getUrl());
 
-                Build ret = getAuthenticatedOpenShiftClient()
+              OpenShiftClient openShiftClient = getAuthenticatedOpenShiftClient();
+              if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+                return true;
+              }
+
+              Build ret = openShiftClient
                         .buildConfigs()
                         .inNamespace(namespace)
                         .withName(jobName)

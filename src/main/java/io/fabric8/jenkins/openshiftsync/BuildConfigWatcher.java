@@ -25,10 +25,7 @@ import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
 import hudson.util.XStream2;
 import io.fabric8.kubernetes.client.Watcher;
-import io.fabric8.openshift.api.model.Build;
-import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.BuildConfigList;
-import io.fabric8.openshift.api.model.BuildList;
+import io.fabric8.openshift.api.model.*;
 import jenkins.model.Jenkins;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 import jenkins.util.Timer;
@@ -43,6 +40,7 @@ import javax.xml.transform.stream.StreamSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -299,10 +297,8 @@ public class BuildConfigWatcher extends BaseWatcher implements
                                             && newProperty.getName().equals(
                                                     buildConfigProjectProperty
                                                             .getName())
-                                            && newProperty
-                                                    .getBuildRunPolicy()
-                                                    .equals(buildConfigProjectProperty
-                                                            .getBuildRunPolicy())) {
+                                            && Objects
+                                                    .equals(newProperty.getBuildRunPolicy(), buildConfigProjectProperty.getBuildRunPolicy())) {
                                         return null;
                                     }
                                     buildConfigProjectProperty
@@ -330,10 +326,13 @@ public class BuildConfigWatcher extends BaseWatcher implements
                                                 .getJenkinsPipelineStrategy(),
                                         true);
 
-                                job.setConcurrentBuild(!(buildConfig.getSpec()
-                                        .getRunPolicy().equals(SERIAL) || buildConfig
-                                        .getSpec().getRunPolicy()
-                                        .equals(SERIAL_LATEST_ONLY)));
+                                BuildConfigSpec spec = buildConfig.getSpec();
+                                if(spec != null) {
+                                  String runPolicy = spec.getRunPolicy();
+                                  if(runPolicy != null) {
+                                    job.setConcurrentBuild(!(runPolicy.equals(SERIAL) || runPolicy.equals(SERIAL_LATEST_ONLY)));
+                                  }
+                                }
 
                                 InputStream jobStream = new StringInputStream(
                                         new XStream2().toXML(job));

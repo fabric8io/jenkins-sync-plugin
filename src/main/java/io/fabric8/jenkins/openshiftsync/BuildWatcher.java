@@ -18,12 +18,16 @@ package io.fabric8.jenkins.openshiftsync;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
+import io.fabric8.kubernetes.api.model.ObjectReference;
 import io.fabric8.kubernetes.api.model.OwnerReference;
+import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
-import io.fabric8.openshift.api.model.Build;
-import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.BuildList;
-import io.fabric8.openshift.api.model.BuildStatus;
+import io.fabric8.kubernetes.client.dsl.LogWatch;
+import io.fabric8.kubernetes.client.dsl.NonNamespaceOperation;
+import io.fabric8.openshift.api.model.*;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
+import io.fabric8.openshift.client.dsl.BuildResource;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 
 import org.apache.commons.lang.StringUtils;
@@ -91,13 +95,21 @@ public class BuildWatcher extends BaseWatcher implements Watcher<Build> {
                     BuildList newBuilds = null;
                     try {
                         logger.fine("listing Build resources");
-                        newBuilds = getAuthenticatedOpenShiftClient()
-                                .builds()
-                                .inNamespace(namespace)
-                                .withField(OPENSHIFT_BUILD_STATUS_FIELD,
-                                        BuildPhases.NEW).list();
+                        OpenShiftClient openShiftClient = getOpenShiftClient();
+                        NonNamespaceOperation<Build, BuildList, DoneableBuild, BuildResource<Build, DoneableBuild, String, LogWatch>>
+                              builds = openShiftClient.builds().inNamespace(namespace);
+                        if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+                          newBuilds = builds.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW).list();
+                        } else {
+                          newBuilds = builds.list();
+                        }
+
                         onInitialBuilds(newBuilds);
                         logger.fine("handled Build resources");
+                      /*Watch buildsWatch;
+                        if (buildsWatch == null) {
+                          buildsWatch = builds.withResourceVersion(newBuilds.getMetadata().getResourceVersion()).watch(BuildWatcher.this);
+                        }*/
                     } catch (Exception e) {
                         logger.log(Level.SEVERE,
                                 "Failed to load initial Builds: " + e, e);
@@ -218,11 +230,19 @@ public class BuildWatcher extends BaseWatcher implements Watcher<Build> {
             for (Build b : items) {
                 if (!OpenShiftUtils.isPipelineStrategyBuild(b))
                     continue;
-                String buildConfigName = b.getStatus().getConfig().getName();
-                if (StringUtils.isEmpty(buildConfigName)) {
-                    continue;
-                }
+                String buildConfigName = null;
+                BuildStatus status = b.getStatus();
                 String namespace = b.getMetadata().getNamespace();
+                if (status != null) {
+                  ObjectReference config = status.getConfig();
+                  if (config != null) {
+                    buildConfigName = config.getName();
+                  }
+
+                  if (StringUtils.isEmpty(buildConfigName)) {
+                    continue;
+                  }
+                }
                 String bcMapKey = namespace + "/" + buildConfigName;
                 BuildConfig bc = buildConfigMap.get(bcMapKey);
                 if (bc == null) {

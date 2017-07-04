@@ -40,13 +40,12 @@ import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.openshift.api.model.Build;
-import io.fabric8.openshift.api.model.BuildBuilder;
-import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.GitBuildSource;
-import io.fabric8.openshift.api.model.GitSourceRevision;
-import io.fabric8.openshift.api.model.JenkinsPipelineBuildStrategy;
-import io.fabric8.openshift.api.model.SourceRevision;
+import io.fabric8.kubernetes.client.Watch;
+import io.fabric8.kubernetes.client.Watcher;
+import io.fabric8.kubernetes.client.dsl.FilterWatchListDeletable;
+import io.fabric8.openshift.api.model.*;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.model.Jenkins;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 import jenkins.util.Timer;
@@ -535,10 +534,22 @@ public class JenkinsUtils {
 			return;
 		}
 
-		List<Build> builds = getAuthenticatedOpenShiftClient().builds().inNamespace(bcp.getNamespace())
+    OpenShiftClient openShiftClient = getAuthenticatedOpenShiftClient();
+
+    FilterWatchListDeletable<Build, BuildList, Boolean, Watch, Watcher<Build>> resource = openShiftClient.builds().
+      inNamespace(bcp.getNamespace()).withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName());
+
+    if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+      resource = resource.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW);
+    }
+
+    List<Build> builds = resource.list().getItems();
+    handleBuildList(job, builds, bcp);
+
+		/*List<Build> builds = getAuthenticatedOpenShiftClient().builds().inNamespace(bcp.getNamespace())
 				.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW)
 				.withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName()).list().getItems();
-		handleBuildList(job, builds, bcp);
+		handleBuildList(job, builds, bcp);*/
 	}
 
 	public static void handleBuildList(WorkflowJob job, List<Build> builds,

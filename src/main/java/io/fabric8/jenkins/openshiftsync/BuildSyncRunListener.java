@@ -26,15 +26,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import hudson.Extension;
 import hudson.PluginManager;
+import hudson.model.Job;
 import hudson.model.Result;
 import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.model.listeners.RunListener;
 import hudson.triggers.SafeTimerTask;
 import io.fabric8.kubernetes.client.KubernetesClientException;
+import io.fabric8.kubernetes.client.dsl.LogWatch;
 import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildFluent;
 import io.fabric8.openshift.api.model.DoneableBuild;
+import io.fabric8.openshift.client.OpenShiftAPIGroups;
+import io.fabric8.openshift.client.dsl.BuildResource;
 import io.jenkins.blueocean.rest.factory.BlueRunFactory;
 import io.jenkins.blueocean.rest.model.BluePipelineNode;
 import io.jenkins.blueocean.rest.model.BlueRun;
@@ -43,6 +47,7 @@ import jenkins.model.Jenkins;
 import jenkins.util.Timer;
 
 import org.apache.commons.httpclient.HttpStatus;
+import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
 import org.jenkinsci.plugins.workflow.support.steps.input.InputAction;
 import org.jenkinsci.plugins.workflow.support.steps.input.InputStepExecution;
@@ -65,11 +70,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON;
+import static io.fabric8.jenkins.openshiftsync.Constants.*;
+import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.getBuildConfigName;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.formatTimestamp;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAuthenticatedOpenShiftClient;
@@ -93,6 +95,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
 	private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
 
 	private transient AtomicBoolean timerStarted = new AtomicBoolean(false);
+  private Boolean kubernetesCluster;
 
 	public BuildSyncRunListener() {
 	}
@@ -267,9 +270,25 @@ public class BuildSyncRunListener extends RunListener<Run> {
 		}
 
 		BuildCause cause = (BuildCause) run.getCause(BuildCause.class);
-		if (cause == null) {
-			return;
-		}
+    if (isKubernetesCluster()) {
+      if (cause == null) {
+        Job parent = run.getParent();
+        if (parent instanceof WorkflowJob) {
+          WorkflowJob workflowJob = (WorkflowJob) parent;
+          String buildConfigName = getBuildConfigName(workflowJob);
+          String buildName = buildConfigName + "-" + run.getId();
+          String uid = null;
+          String gitUrl = null;
+          String commit = null;
+          String buildConfigUid = null;
+          cause = new BuildCause(uid, getNameSpace(), buildName, gitUrl, commit, buildConfigUid);
+        } else {
+          return;
+        }
+      }
+    } else if (cause == null) {
+      return;
+    }
 
 		String rootUrl = OpenShiftUtils.getJenkinsURL(getAuthenticatedOpenShiftClient(), cause.getNamespace());
 		String buildUrl = joinPaths(rootUrl, run.getUrl());
@@ -409,16 +428,21 @@ public class BuildSyncRunListener extends RunListener<Run> {
 			}
 		}
 
+    String name = cause.getName();
 		logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}",
 				new Object[] { cause.getNamespace(), cause.getName(), phase });
 		try {
-			BuildFluent.MetadataNested<DoneableBuild> builder = getAuthenticatedOpenShiftClient().builds()
-					.inNamespace(cause.getNamespace()).withName(cause.getName()).edit().editMetadata()
-					.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
-					.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
-					.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl)
-					.addToAnnotations(Constants.OPENSHIFT_ANNOTATIONS_JENKINS_CONSOLE_LOG_URL, logsConsoleUrl)
-					.addToAnnotations(Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BLUEOCEAN_LOG_URL, logsBlueOceanUrl);
+      BuildResource<Build, DoneableBuild, String, LogWatch> resource = getAuthenticatedOpenShiftClient()
+                                                                        .builds().inNamespace(cause.getNamespace()).withName(name);
+
+      BuildFluent.MetadataNested<DoneableBuild> builder = getBuildMetadataBuilder(run, name, resource);
+
+      builder
+        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
+        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
+        .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl)
+        .addToAnnotations(Constants.OPENSHIFT_ANNOTATIONS_JENKINS_CONSOLE_LOG_URL, logsConsoleUrl)
+        .addToAnnotations(Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BLUEOCEAN_LOG_URL, logsBlueOceanUrl);;
 
 			String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
 			if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
@@ -427,7 +451,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
 			if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
 				builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
 			}
-			builder.endMetadata().editStatus().withPhase(phase).withStartTimestamp(startTime)
+			builder.endMetadata().editOrNewStatus().withPhase(phase).withStartTimestamp(startTime)
 					.withCompletionTimestamp(completionTime).endStatus().done();
 		} catch (KubernetesClientException e) {
 			if (HTTP_NOT_FOUND == e.getCode()) {
@@ -442,7 +466,15 @@ public class BuildSyncRunListener extends RunListener<Run> {
 		cause.setLastUpdateToOpenshift(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
 	}
 
-	// annotate the Build with pending input JSON so consoles can do the
+  private BuildFluent.MetadataNested<DoneableBuild> getBuildMetadataBuilder(Run run, String name, BuildResource<Build, DoneableBuild, String, LogWatch> resource) {
+    return getAuthenticatedOpenShiftClient().supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE) ?
+                      resource.edit().editMetadata() :
+                      resource.createOrReplaceWithNew()
+                        .withNewMetadata().withName(name)
+                        .addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
+  }
+
+  // annotate the Build with pending input JSON so consoles can do the
 	// Proceed/Abort stuff if they want
 	private String getPendingActionsJson(WorkflowRun run) {
 		List<PendingInputActionsExt> pendingInputActions = new ArrayList<PendingInputActionsExt>();
@@ -507,4 +539,15 @@ public class BuildSyncRunListener extends RunListener<Run> {
 		return run instanceof WorkflowRun && run.getCause(BuildCause.class) != null
 				&& GlobalPluginConfiguration.get().isEnabled();
 	}
+
+  private boolean isKubernetesCluster() {
+    if (kubernetesCluster == null) {
+      kubernetesCluster = !getAuthenticatedOpenShiftClient().supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
+    }
+    return kubernetesCluster;
+  }
+
+  private String getNameSpace() {
+    return new GlobalPluginConfiguration().getNamespace();
+  }
 }
