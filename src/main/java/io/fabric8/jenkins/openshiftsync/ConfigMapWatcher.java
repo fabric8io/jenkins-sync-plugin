@@ -48,7 +48,7 @@ import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
@@ -236,7 +236,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
               ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty);
             }
 
-            InputStream jobStream = new ByteArrayInputStream(configXml.getBytes("UTF-8"));
+            InputStream jobStream = new ByteArrayInputStream(configXml.getBytes(StandardCharsets.UTF_8));
 
             if (newJob) {
               if (parent instanceof Folder) {
