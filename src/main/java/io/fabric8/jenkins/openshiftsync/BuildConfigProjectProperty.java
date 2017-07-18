@@ -19,6 +19,7 @@ import hudson.Extension;
 import hudson.model.Job;
 import hudson.model.JobProperty;
 import hudson.model.JobPropertyDescriptor;
+import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.openshift.api.model.BuildConfig;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.kohsuke.stapler.DataBoundConstructor;
@@ -63,6 +64,19 @@ public class BuildConfigProjectProperty extends JobProperty<Job<?, ?>> {
       bc.getMetadata().getUid(),
       bc.getMetadata().getResourceVersion(),
       bc.getSpec().getRunPolicy());
+  }
+
+  public BuildConfigProjectProperty(ConfigMap bc) {
+    this(
+      bc.getMetadata().getNamespace(),
+      bc.getMetadata().getName(),
+      bc.getMetadata().getUid(),
+      bc.getMetadata().getResourceVersion(),
+      "serial");
+  }
+
+  public static final BuildConfigProjectProperty getProperty(Job job) {
+    return (BuildConfigProjectProperty) job.getProperty(BuildConfigProjectProperty.class);
   }
 
   public BuildConfig getBuildConfig() {

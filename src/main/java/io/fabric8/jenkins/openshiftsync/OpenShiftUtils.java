@@ -20,11 +20,13 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 import hudson.BulkChange;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.util.XStream2;
+import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.ReplicationController;
@@ -51,7 +53,13 @@ import org.apache.tools.ant.filters.StringInputStream;
 import org.joda.time.DateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -67,6 +75,7 @@ import java.util.logging.Logger;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.NEW;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.PENDING;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.RUNNING;
+import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.CONFIG_XML;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_DEFAULT_NAMESPACE;
 import static java.util.logging.Level.FINE;
 
@@ -131,12 +140,33 @@ public class OpenShiftUtils {
   }
 
   /**
+   * Checks if a {@link ConfigMap} should be mapped to a non-Pipeline Jenkins Job
+   *
+   * @param cm the ConfigMap
+   * @return true if this ConfigMap should be mapped to a Jenkins Job
+   */
+  public static boolean isJenkinsConfigMap(ConfigMap cm) {
+    ObjectMeta metadata = cm.getMetadata();
+    Map<String, String> data = cm.getData();
+    if (metadata == null || data == null) {
+      return false;
+    }
+    Map<String, String> labels = metadata.getLabels();
+    if (labels == null) {
+      return false;
+    }
+    String jenkinsJobLabel = labels.get("openshift.io/jenkins");
+    String configMap = data.get(CONFIG_XML);
+    return configMap != null && configMap.length() > 0 && Objects.equal("job", jenkinsJobLabel);
+  }
+
+  /**
    * Finds the Jenkins job name for the given {@link BuildConfig}.
    *
    * @param bc the BuildConfig
    * @return the jenkins job name for the given BuildConfig
    */
-  public static String jenkinsJobName(BuildConfig bc) {
+  public static String jenkinsJobName(HasMetadata bc) {
     return getName(bc);
   }
 
@@ -146,7 +176,7 @@ public class OpenShiftUtils {
    * @param bc the BuildConfig
    * @return the jenkins job name for the given BuildConfig
    */
-  public static String jenkinsJobFullName(BuildConfig bc) {
+  public static String jenkinsJobFullName(HasMetadata bc) {
     String jobName = getAnnotation(bc, Annotations.JENKINS_JOB_PATH);
     if (StringUtils.isNotBlank(jobName)) {
       return jobName;
@@ -494,6 +524,46 @@ public class OpenShiftUtils {
     return null;
   }
 
+  /**
+   * Returns true if the given flagName is true in the ConfigMap data map
+   */
+  public static boolean isConfigMapFlagEnabled(ConfigMap configMap, String flagName) {
+    Map<String, String> data = configMap.getData();
+    boolean answer = false;
+    if (data != null) {
+      String flag = data.get(flagName);
+      answer = flag != null && flag.equalsIgnoreCase("true");
+    }
+    return answer;
+  }
+
+  /**
+   * Removes the BuildConfigProperty element from the given XML document
+   */
+  public static String removePropertiesFromXml(String xml) throws TransformerException, IOException, SAXException, ParserConfigurationException {
+    Document doc = XmlUtils.parseDoc(xml);
+    NodeList list = doc.getElementsByTagName("properties");
+    for (int i = 0, size = list.getLength(); i < size; i++) {
+      Node item = list.item(i);
+      XmlUtils.detach(item);
+    }
+    return XmlUtils.toXml(doc);
+  }
+
+  /**
+   * Returns true if the config XML has changed ignoring the properties elements
+   */
+  public static boolean configXmlUpdated(String configXml, String oldConfigXml) {
+    try {
+      String xml1 = OpenShiftUtils.removePropertiesFromXml(configXml);
+      String xml2 = OpenShiftUtils.removePropertiesFromXml(oldConfigXml);
+      return !java.util.Objects.equals(xml1, xml2);
+    } catch (Exception e) {
+      logger.log(Level.WARNING, "Failed to remove the BuildConfigProperty from xml " + e, e);
+      return true;
+    }
+
+  }
 
 
   abstract class StatelessReplicationControllerMixIn extends ReplicationController {

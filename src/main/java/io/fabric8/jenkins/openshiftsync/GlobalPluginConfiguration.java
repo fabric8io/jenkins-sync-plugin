@@ -56,6 +56,8 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   private transient SecretWatcher secretWatcher;
 
+  private transient ConfigMapWatcher configMapWatcher;
+
   @DataBoundConstructor
   public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern, String skipOrganisationPrefix, String skipBranchSuffix) {
     this.enabled = enable;
@@ -149,6 +151,9 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
       if (secretWatcher != null) {
         secretWatcher.stop();
       }
+      if (configMapWatcher != null) {
+        configMapWatcher.stop();
+      }
       OpenShiftUtils.shutdownOpenShiftClient();
       return;
     }
@@ -187,6 +192,8 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
           buildWatcher.start();
           secretWatcher = new SecretWatcher(namespace);
           secretWatcher.start();
+          configMapWatcher = new ConfigMapWatcher(namespace);
+          configMapWatcher.start();
         }
       };
       // lets give jenkins a while to get started ;)
