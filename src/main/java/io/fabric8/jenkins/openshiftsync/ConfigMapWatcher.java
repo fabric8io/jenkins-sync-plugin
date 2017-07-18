@@ -48,6 +48,7 @@ import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
@@ -174,7 +175,6 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
     if (isJenkinsConfigMap(configMap)) {
       Map<String, String> configData = configMap.getData();
       final String configXml = configData.get(CONFIG_XML);
-      String runPolicy = configData.get(RUN_POLICY);
       if (configXml != null) {
 
         ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
@@ -236,7 +236,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
               ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty);
             }
 
-            InputStream jobStream = new ByteArrayInputStream(configXml.getBytes());
+            InputStream jobStream = new ByteArrayInputStream(configXml.getBytes("UTF-8"));
 
             if (newJob) {
               if (parent instanceof Folder) {
