@@ -85,7 +85,8 @@ public class BuildWatcher implements Watcher<Build> {
           OpenShiftClient openShiftClient = getOpenShiftClient();
           NonNamespaceOperation<Build, BuildList, DoneableBuild, BuildResource<Build, DoneableBuild, String, LogWatch>> builds = openShiftClient.builds().inNamespace(namespace);
           BuildList newBuilds;
-          if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+          // we can only use field filters on the legacy /oapi REST API right now
+          if (openShiftClient.supportsApiPath("/oapi") && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.BUILD)) {
             newBuilds = builds.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW).list();
           } else {
             newBuilds = builds.list();
