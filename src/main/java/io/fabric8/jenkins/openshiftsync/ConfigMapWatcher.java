@@ -1,5 +1,9 @@
 /**
+<<<<<<< HEAD
  * Copyright (C) 2017 Red Hat, Inc.
+=======
+ * Copyright (C) 2016 Red Hat, Inc.
+>>>>>>> 129b1fd... support syncing ConfigMap's with config.xml files <-> Jenkins Jobs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +19,35 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.cloudbees.hudson.plugins.folder.Folder;
+import com.google.common.base.Strings;
 import com.thoughtworks.xstream.XStreamException;
-
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.BulkChange;
+import hudson.XmlFile;
+import hudson.model.*;
+import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
+import hudson.util.DescribableList;
 import hudson.util.XStream2;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ConfigMapList;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.openshift.api.model.ImageStreamTag;
-
+import jenkins.branch.OrganizationFolder;
+import jenkins.model.Jenkins;
+import jenkins.scm.api.SCMNavigator;
+import jenkins.scm.api.SCMNavigatorDescriptor;
+import jenkins.security.NotReallyRoleSensitiveCallable;
+import org.apache.commons.beanutils.BeanUtilsBean;
 import org.csanchez.jenkins.plugins.kubernetes.PodTemplate;
-import org.csanchez.jenkins.plugins.kubernetes.PodVolumes;
 
+import javax.xml.transform.Source;
+import javax.xml.transform.stream.StreamSource;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,15 +56,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAuthenticatedOpenShiftClient;
+import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.*;
+import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.*;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.*;
 import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Level.WARNING;
 
-public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> {
-    private final Logger logger = Logger.getLogger(getClass().getName());
-    private Map<String, List<PodTemplate>> trackedConfigMaps;
 
-    @SuppressFBWarnings("EI_EXPOSE_REP2")
+public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> {
+    private Map<String, List<PodTemplate>> trackedConfigMaps;
+    private final static Logger logger = Logger.getLogger(ConfigMapWatcher.class.getName());
+    private static final String SPECIAL_IST_PREFIX = "imagestreamtag:";
+    private static final int SPECIAL_IST_PREFIX_IDX = SPECIAL_IST_PREFIX.length();
+
+
+  @SuppressFBWarnings("EI_EXPOSE_REP2")
     public ConfigMapWatcher(String[] namespaces) {
         super(namespaces);
         this.trackedConfigMaps = new ConcurrentHashMap<>();
@@ -59,7 +84,9 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                     logger.fine("No Openshift Token credential defined.");
                     return;
                 }
-                for (String namespace : namespaces) {
+              initializeConfigMapToJobMap();
+
+              for (String namespace : namespaces) {
                     ConfigMapList configMaps = null;
                     try {
                         logger.fine("listing ConfigMap resources");
@@ -119,6 +146,7 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                         JenkinsUtils.addPodTemplate(podTemplate);
                     }
                 }
+                upsertJob(configMap);
                 break;
 
             case MODIFIED:
@@ -163,6 +191,7 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                         }
                     }
                 }
+                modifyJob(configMap);
                 break;
 
             case DELETED:
@@ -174,6 +203,7 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                     }
                     trackedConfigMaps.remove(configMap.getMetadata().getUid());
                 }
+                deleteJob(configMap);
                 break;
             // pedantic mvn:findbugs complaint
             default:
@@ -199,12 +229,15 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                     if (containsSlave(configMap)
                             && !trackedConfigMaps.containsKey(configMap
                                     .getMetadata().getUid())) {
-                        List<PodTemplate> templates = podTemplatesFromConfigMap(configMap);
+
+                      List<PodTemplate> templates = podTemplatesFromConfigMap(configMap);
                         trackedConfigMaps.put(configMap.getMetadata().getUid(),
                                 templates);
                         for (PodTemplate podTemplate : templates) {
                             JenkinsUtils.addPodTemplate(podTemplate);
                         }
+
+                      upsertJob(configMap);
                     }
                 } catch (Exception e) {
                     logger.log(SEVERE,
@@ -223,10 +256,6 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
                 && str.indexOf(substr) == str.lastIndexOf(substr)
                 && str.indexOf(substr) < str.length();
     }
-
-    private static final String SPECIAL_IST_PREFIX = "imagestreamtag:";
-    private static final int SPECIAL_IST_PREFIX_IDX = SPECIAL_IST_PREFIX
-            .length();
 
     // podTemplatesFromConfigMap takes every key from a ConfigMap and tries to
     // create a PodTemplate from the contained
@@ -338,4 +367,209 @@ public class ConfigMapWatcher extends BaseWatcher implements Watcher<ConfigMap> 
 
         return results;
     }
+
+  private void upsertJob(final ConfigMap configMap) throws Exception {
+    if (isJenkinsConfigMap(configMap)) {
+      Map<String, String> configData = configMap.getData();
+      final String configXml = configData.get(CONFIG_XML);
+      if (configXml != null) {
+
+        ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
+          @Override
+          public Void call() throws Exception {
+            String jobName = jenkinsJobName(configMap);
+            String jobFullName = jenkinsJobFullName(configMap);
+            boolean rootJob = OpenShiftUtils.isConfigMapFlagEnabled(configMap, ROOT_JOB);
+            if (rootJob) {
+              jobFullName = getName(configMap);
+            }             
+            Job job = getJobFromConfigMap(configMap);
+            Jenkins activeInstance = Jenkins.getActiveInstance();
+            ItemGroup parent = activeInstance;
+            if (job == null) {
+              job = (Job) activeInstance.getItemByFullName(jobFullName);
+            }
+            boolean newJob = job == null;
+            boolean updated = true;
+            if (newJob) {
+              if (!rootJob) {
+                parent = getFullNameParent(activeInstance, jobFullName, getNamespace(configMap));
+              }
+              job = new FreeStyleProject(parent, jobName);
+            } else {
+              XmlFile configFile = job.getConfigFile();
+              if (configFile != null) {
+                String oldConfigXml = configFile.asString();
+                if (oldConfigXml != null) {
+                  updated = OpenShiftUtils.configXmlUpdated(configXml, oldConfigXml);
+                }
+              }
+            }
+            if (!updated) {
+              return null;
+            }
+
+            BulkChange bk = new BulkChange(job);
+
+            BuildConfigProjectProperty buildConfigProjectProperty = BuildConfigProjectProperty.getProperty(job);
+            if (buildConfigProjectProperty != null) {
+              long updatedBCResourceVersion = parseResourceVersion(configMap);
+              long oldBCResourceVersion = parseResourceVersion(buildConfigProjectProperty.getResourceVersion());
+              BuildConfigProjectProperty newProperty = new BuildConfigProjectProperty(configMap);
+              if (updatedBCResourceVersion <= oldBCResourceVersion &&
+                      newProperty.getUid().equals(buildConfigProjectProperty.getUid()) &&
+                      newProperty.getNamespace().equals(buildConfigProjectProperty.getNamespace()) &&
+                      newProperty.getName().equals(buildConfigProjectProperty.getName())) {
+                return null;
+              }
+              buildConfigProjectProperty.setUid(newProperty.getUid());
+              buildConfigProjectProperty.setNamespace(newProperty.getNamespace());
+              buildConfigProjectProperty.setName(newProperty.getName());
+              buildConfigProjectProperty.setResourceVersion(newProperty.getResourceVersion());
+              buildConfigProjectProperty.setBuildRunPolicy(newProperty.getBuildRunPolicy());
+
+            } else {
+              buildConfigProjectProperty = new BuildConfigProjectProperty(configMap);
+              ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty);
+            }
+
+            InputStream jobStream = new ByteArrayInputStream(configXml.getBytes());
+
+            if (newJob) {
+              if (parent instanceof Folder) {
+                Folder folder = (Folder) parent;
+                folder.createProjectFromXML(
+                        jobName,
+                        jobStream
+                ).save();
+              } else {
+                activeInstance.createProjectFromXML(
+                        jobName,
+                        jobStream
+                ).save();
+              }
+
+              logger.info("Created job " + jobName + " from ConfigMap " + NamespaceName.create(configMap) + " with revision: " + configMap.getMetadata().getResourceVersion());
+            } else {
+              Source source = new StreamSource(jobStream);
+              job.updateByXml(source);
+              job.save();
+              logger.info("Updated job " + jobName + " from ConfigMap " + NamespaceName.create(configMap) + " with revision: " + configMap.getMetadata().getResourceVersion());
+
+            }
+            job.addProperty(
+              buildConfigProjectProperty
+            );
+
+            if (updated) {
+              maybeScheduleConfigMapJob(job, configMap);
+            }
+            bk.commit();
+            String fullName = job.getFullName();
+            Job currentJob = activeInstance.getItemByFullName(fullName, Job.class);
+            if (currentJob == null && parent instanceof Folder && job instanceof TopLevelItem) {
+              // we should never need this but just in case there's an odd timing issue or something...
+              TopLevelItem top = (TopLevelItem) job;
+              Folder folder = (Folder) parent;
+              folder.add(top, jobName);
+              currentJob = activeInstance.getItemByFullName(fullName, Job.class);
+            }
+            if (currentJob == null) {
+              logger.warning("Could not find created job " + fullName + " for ConfigMap: " + getNamespace(configMap) + "/" + getName(configMap));
+            } else {
+              //logger.info((newJob ? "created" : "updated" ) + " job " + fullName + " with path " + jobFullName + " from ConfigMap: " + getNamespace(configMap) + "/" + getName(configMap));
+              putJobWithConfigMap(currentJob, configMap);
+            }
+            return null;
+          }
+        });
+      }
+    }
+  }
+
+  private static void maybeScheduleConfigMapJob(Job job, ConfigMap configMap) {
+    if (OpenShiftUtils.isConfigMapFlagEnabled(configMap, TRIGGER_ON_CHANGE)) {
+      if (job.isBuilding() || job.isInQueue()) {
+        return;
+      }
+      if (job instanceof BuildableItem) {
+        BuildableItem buildableItem = (BuildableItem) job;
+        Cause.RemoteCause cause = new Cause.RemoteCause("kubernetes", "Triggered by the change to the ConfigMap");
+        logger.info("triggered build!");
+        buildableItem.scheduleBuild(cause);
+      } else {
+        logger.warning("Job is not a BuildableItem for " + job.getClass().getName() + " " + job);
+      }
+    }
+  }
+
+  private void modifyJob(ConfigMap configMap) throws Exception {
+    if (isJenkinsConfigMap(configMap)) {
+      upsertJob(configMap);
+      return;
+    }
+
+    // no longer a Jenkins build so lets delete it if it exists
+    deleteJob(configMap);
+  }
+
+  private void deleteJob(final ConfigMap configMap) throws Exception {
+    final Job job = getJobFromConfigMap(configMap);
+    if (job != null) {
+      ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
+        @Override
+        public Void call() throws Exception {
+          ItemGroup parent = job.getParent();
+          try {
+            job.delete();
+          } finally {
+            removeJobWithConfigMap(configMap);
+            Jenkins.getActiveInstance().rebuildDependencyGraphAsync();
+          }
+          if (parent instanceof Item) {
+            removeConfigMapJobFromFolderPluginJob((Item) parent, configMap, job);
+          }
+          return null;
+        }
+      });
+    }
+  }
+
+  private void removeConfigMapJobFromFolderPluginJob(Item parent, ConfigMap configMap, Job job) {
+    if (parent instanceof OrganizationFolder) {
+      OrganizationFolder organizationFolder = (OrganizationFolder) parent;
+      DescribableList<SCMNavigator, SCMNavigatorDescriptor> navigators = organizationFolder.getNavigators();
+      if (navigators != null) {
+        for (SCMNavigator navigator : navigators) {
+          if (navigator.getClass().getName().equals("org.jenkinsci.plugins.github_branch_source.GitHubSCMNavigator")) {
+            // lets try get the pattern property
+            BeanUtilsBean converter = new BeanUtilsBean();
+            String pattern = null;
+            try {
+              pattern = converter.getProperty(navigator, "pattern");
+            } catch (Exception e) {
+              logger.warning("Could not get pattern of navigator " + navigator + " due to: " + e);
+            }
+            ObjectMeta metadata = configMap.getMetadata();
+            if (!Strings.isNullOrEmpty(pattern) && metadata != null) {
+              String name = metadata.getName();
+              String newPattern = JenkinsUtils.removePattern(pattern, name);
+              if (newPattern != null) {
+                try {
+                  converter.setProperty(navigator, "pattern", newPattern);
+                } catch (Exception e) {
+                  logger.warning("Could not update pattern of navigator " + navigator + " to " + pattern + " due to: " + e);
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (parent != null) {
+      ItemGroup<? extends Item> grandParent = parent.getParent();
+      if (grandParent instanceof Item) {
+        removeConfigMapJobFromFolderPluginJob((Item) grandParent, configMap, job);
+      }
+    }
+  }
 }

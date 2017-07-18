@@ -67,6 +67,7 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
 	private transient ImageStreamWatcher imageStreamWatcher;
 
+
 	@DataBoundConstructor
 	public GlobalPluginConfiguration(boolean enable, String server, String namespace, String credentialsId,
 			String jobNamePattern, String skipOrganizationPrefix, String skipBranchSuffix) {

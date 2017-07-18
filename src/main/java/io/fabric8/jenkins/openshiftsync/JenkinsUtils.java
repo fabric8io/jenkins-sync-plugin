@@ -826,4 +826,34 @@ public class JenkinsUtils {
 		return podTemplate;
 	}
 
+  /**
+   * Removes the given text value from a pattern separated by <code>|</code> symbols when using something like
+   * the pattern expressions on the github organsiation plugin
+   *
+   * @param pattern the pattern expression which could be a single value or multiple values separated by <code>|</code>
+   * @param name the name of a project to be removed if its contained in the pattern
+   * @return the new pattern or null if it could not be found
+   */
+  public static String removePattern(String pattern, String name) {
+    if (pattern.equals(name)) {
+      pattern = "";
+    } else {
+      String prefix = name + "|";
+      String suffix = "|" + name;
+      String middle = "|" + name + "|";
+      if (pattern.startsWith(prefix)) {
+        pattern = pattern.substring(prefix.length());
+      } else if (pattern.endsWith(suffix)) {
+        pattern = pattern.substring(0, pattern.length() - suffix.length());
+      } else {
+        int idx = pattern.indexOf(middle);
+        if (idx < 0) {
+          return null;
+        }
+        String separator = idx > 0 ? "|" : "";
+        pattern = pattern.substring(0, idx) + separator + pattern.substring(idx + middle.length());
+      }
+    }
+    return pattern;
+  }
 }

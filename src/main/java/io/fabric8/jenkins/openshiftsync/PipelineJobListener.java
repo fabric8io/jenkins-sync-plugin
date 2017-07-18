@@ -18,11 +18,17 @@ package io.fabric8.jenkins.openshiftsync;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import com.google.common.base.Objects;
 import hudson.Extension;
+import hudson.XmlFile;
+import hudson.model.AbstractItem;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
+import hudson.model.Job;
 import hudson.model.listeners.ItemListener;
+import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.DoneableConfigMap;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.KubernetesClientException;
+import io.fabric8.kubernetes.client.dsl.Resource;
 import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigBuilder;
 import io.fabric8.openshift.api.model.BuildConfigSpec;
@@ -30,11 +36,14 @@ import io.fabric8.openshift.api.model.BuildSource;
 import io.fabric8.openshift.api.model.BuildStrategy;
 import io.fabric8.openshift.api.model.GitBuildSource;
 import io.fabric8.openshift.api.model.JenkinsPipelineBuildStrategy;
+import io.fabric8.openshift.client.OpenShiftClient;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.kohsuke.stapler.DataBoundConstructor;
 
+import java.io.IOException;
 import java.util.Collection;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -143,8 +152,67 @@ public class PipelineJobListener extends ItemListener {
 			upsertWorkflowJob((WorkflowJob) item);
 		} else if (item instanceof ItemGroup) {
 			upsertItemGroup((ItemGroup) item);
-		}
+		} else if (item instanceof Job) {
+      upsertJob((Job) item);
+    }
 	}
+
+  private void upsertJob(AbstractItem job) {
+    BuildConfigProjectProperty property = ConfigMapToJobMap.getOrFindProperty((Job) job);
+    if (property != null) {
+      String newConfigXml = null;
+      XmlFile configFile = job.getConfigFile();
+      if (configFile != null) {
+        try {
+          newConfigXml = configFile.asString();
+        } catch (IOException e) {
+          logger.log(Level.WARNING, "Failed to get Job " + job.getName() + " config.xml due to " + e, e);
+          return;
+        }
+      }
+      if (newConfigXml == null) {
+        return;
+      }
+      // lets update the ConfigMap if the config.xml has changed
+      String name = property.getName();
+      String namespace = property.getNamespace();
+      OpenShiftClient openShiftClient = getAuthenticatedOpenShiftClient();
+      ConfigMap configMap = null;
+      Resource<ConfigMap, DoneableConfigMap> configMapResource = openShiftClient.configMaps().inNamespace(namespace).withName(name);
+      try {
+        configMap = configMapResource.get();
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Failed to load ConfigMap " + namespace + "/" + name + " due to " + e, e);
+        return;
+      }
+      if (configMap != null) {
+        Map<String, String> data = configMap.getData();
+        if (data != null) {
+          String oldConfigXml = data.get(ConfigMapKeys.CONFIG_XML);
+          if (oldConfigXml != null) {
+            String xml1;
+            String xml2;
+            try {
+              xml1 = OpenShiftUtils.removePropertiesFromXml(newConfigXml);
+              xml2 = OpenShiftUtils.removePropertiesFromXml(oldConfigXml);
+            } catch (Exception e) {
+              logger.log(Level.WARNING, "Failed to parse config.xml due to " + e, e);
+              return;
+            }
+            if (!java.util.Objects.equals(xml1, xml2)) {
+              data.put(ConfigMapKeys.CONFIG_XML, xml1);
+              try {
+                configMapResource.edit().addToData(ConfigMapKeys.CONFIG_XML, xml1).done();
+                logger.info("Updated ConfigMap " + namespace + "/" + name + " due to update to config.xml via Jenkins UI");
+              } catch (Exception e) {
+                logger.log(Level.WARNING, "Failed to update ConfigMap " + namespace + "/" + name + " due to " + e, e);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
 	private void upsertItemGroup(ItemGroup itemGroup) {
 		Collection items = itemGroup.getItems();
