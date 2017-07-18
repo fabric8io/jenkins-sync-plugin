@@ -20,6 +20,7 @@ import com.google.common.base.Strings;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.BulkChange;
 import hudson.XmlFile;
+import hudson.model.AbstractItem;
 import hudson.model.BuildableItem;
 import hudson.model.Cause;
 import hudson.model.FreeStyleProject;
@@ -186,11 +187,14 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
             if (rootJob) {
               jobFullName = getName(configMap);
             }             
-            Job job = getJobFromConfigMap(configMap);
+            AbstractItem job = getJobFromConfigMap(configMap);
             Jenkins activeInstance = Jenkins.getActiveInstance();
             ItemGroup parent = activeInstance;
             if (job == null) {
-              job = (Job) activeInstance.getItemByFullName(jobFullName);
+              Item item = activeInstance.getItemByFullName(jobFullName);
+              if (item instanceof AbstractItem) {
+                job = (AbstractItem) item;
+              }
             }
             boolean newJob = job == null;
             boolean updated = true;
@@ -214,7 +218,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
 
             BulkChange bk = new BulkChange(job);
 
-            BuildConfigProjectProperty buildConfigProjectProperty = BuildConfigProjectProperty.getProperty(job);
+            BuildConfigProjectProperty buildConfigProjectProperty = ConfigMapToJobMap.getOrFindProperty(job);
             if (buildConfigProjectProperty != null) {
               long updatedBCResourceVersion = parseResourceVersion(configMap);
               long oldBCResourceVersion = parseResourceVersion(buildConfigProjectProperty.getResourceVersion());
@@ -233,8 +237,8 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
 
             } else {
               buildConfigProjectProperty = new BuildConfigProjectProperty(configMap);
-              ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty);
             }
+            ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty, job);
 
             InputStream jobStream = new ByteArrayInputStream(configXml.getBytes(StandardCharsets.UTF_8));
 
@@ -260,9 +264,8 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
               logger.info("Updated job " + jobName + " from ConfigMap " + NamespaceName.create(configMap) + " with revision: " + configMap.getMetadata().getResourceVersion());
 
             }
-            job.addProperty(
-              buildConfigProjectProperty
-            );
+
+            BuildConfigProjectProperty.setProperty(job, buildConfigProjectProperty);
 
             if (updated) {
               maybeScheduleConfigMapJob(job, configMap);
@@ -290,9 +293,10 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
     }
   }
 
-  private static void maybeScheduleConfigMapJob(Job job, ConfigMap configMap) {
+  private static void maybeScheduleConfigMapJob(Item job, ConfigMap configMap) {
     if (OpenShiftUtils.isConfigMapFlagEnabled(configMap, TRIGGER_ON_CHANGE)) {
-      if (job.isBuilding() || job.isInQueue()) {
+      //if () {
+      if (isBuildingOrInQueue(job)) {
         return;
       }
       if (job instanceof BuildableItem) {
@@ -306,6 +310,14 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
     }
   }
 
+  private static boolean isBuildingOrInQueue(Item item) {
+    if (item instanceof Job) {
+      Job job = (Job) item;
+      return job.isBuilding() || job.isInQueue();
+    }
+    return false;
+  }
+
   private void modifyJob(ConfigMap configMap) throws Exception {
     if (isJenkinsConfigMap(configMap)) {
       upsertJob(configMap);
@@ -317,7 +329,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
   }
 
   private void deleteJob(final ConfigMap configMap) throws Exception {
-    final Job job = getJobFromConfigMap(configMap);
+    final AbstractItem job = getJobFromConfigMap(configMap);
     if (job != null) {
       ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
         @Override
@@ -338,7 +350,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
     }
   }
 
-  private void removeConfigMapJobFromFolderPluginJob(Item parent, ConfigMap configMap, Job job) {
+  private void removeConfigMapJobFromFolderPluginJob(Item parent, ConfigMap configMap, AbstractItem job) {
     if (parent instanceof OrganizationFolder) {
       OrganizationFolder organizationFolder = (OrganizationFolder) parent;
       DescribableList<SCMNavigator, SCMNavigatorDescriptor> navigators = organizationFolder.getNavigators();

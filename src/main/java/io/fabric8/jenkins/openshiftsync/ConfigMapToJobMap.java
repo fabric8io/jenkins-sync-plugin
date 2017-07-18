@@ -1,5 +1,8 @@
 package io.fabric8.jenkins.openshiftsync;
 
+import hudson.model.AbstractItem;
+import hudson.model.Item;
+import hudson.model.ItemGroup;
 import hudson.model.Job;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
@@ -15,7 +18,7 @@ import static org.apache.commons.lang.StringUtils.isNotBlank;
 
 public class ConfigMapToJobMap {
 
-  private static Map<String, Job> configMapToJobMap;
+  private static Map<String, AbstractItem> configMapToJobMap;
   private static Map<String, BuildConfigProjectProperty> uuidToProperty;
 
   private ConfigMapToJobMap() {
@@ -41,7 +44,7 @@ public class ConfigMapToJobMap {
     }
   }
 
-  static synchronized Job getJobFromConfigMap(ConfigMap configMap) {
+  static synchronized AbstractItem getJobFromConfigMap(ConfigMap configMap) {
     ObjectMeta meta = configMap.getMetadata();
     if (meta == null) {
       return null;
@@ -49,7 +52,7 @@ public class ConfigMapToJobMap {
     return getJobFromConfigMapUid(meta.getUid());
   }
 
-  static synchronized Job getJobFromConfigMapUid(String uid) {
+  static synchronized AbstractItem getJobFromConfigMapUid(String uid) {
     if (isBlank(uid)) {
       return null;
     }
@@ -70,7 +73,7 @@ public class ConfigMapToJobMap {
     putJobWithConfigMapUid(job, meta.getUid());
   }
 
-  static synchronized void putJobWithConfigMapUid(Job job, String uid) {
+  static synchronized void putJobWithConfigMapUid(AbstractItem job, String uid) {
     if (isBlank(uid)) {
       throw new IllegalArgumentException("ConfigMap uid must not be blank");
     }
@@ -100,16 +103,16 @@ public class ConfigMapToJobMap {
    * Returns the property for the given job using the old cached Job if there is no longer a property
    * on the Job (such as if the Job has been editted in the Jenkins UI)
    */
-  public static BuildConfigProjectProperty getOrFindProperty(Job job) {
+  public static BuildConfigProjectProperty getOrFindProperty(AbstractItem job) {
     BuildConfigProjectProperty answer = BuildConfigProjectProperty.getProperty(job);
     if (answer == null) {
       /// we must have just edited the Job via the Jenkins UI so lets try find the old Job to find the old proeprty
-      String fullName = job.getFullName();
-      Set<Map.Entry<String, Job>> entries = configMapToJobMap.entrySet();
-      for (Map.Entry<String, Job> entry : entries) {
+      String fullName = getFullName(job);
+      Set<Map.Entry<String, AbstractItem>> entries = configMapToJobMap.entrySet();
+      for (Map.Entry<String, AbstractItem> entry : entries) {
         String uid = entry.getKey();
-        Job item = entry.getValue();
-        if (fullName.equals(item.getFullName())) {
+        AbstractItem item = entry.getValue();
+        if (fullName.equals(getFullName(item))) {
           answer = BuildConfigProjectProperty.getProperty(item);
           if (answer == null) {
             answer = uuidToProperty.get(uid);
@@ -121,10 +124,21 @@ public class ConfigMapToJobMap {
     return answer;
   }
 
-  public static void putBuildConfigProjectProperty(BuildConfigProjectProperty property) {
+  private static String getFullName(Item item) {
+    String parentName = "";
+    ItemGroup<? extends Item> parent = item.getParent();
+    if (parent != null) {
+      parentName = parent.getFullName();
+    }
+    String name = item.getName();
+    return parentName.isEmpty() ? name : parentName + "/" + name;
+  }
+
+  public static void putBuildConfigProjectProperty(BuildConfigProjectProperty property, AbstractItem job) {
     String uid = property.getUid();
     if (uid != null) {
       uuidToProperty.put(uid, property);
+      configMapToJobMap.put(uid, job);
     }
   }
 }

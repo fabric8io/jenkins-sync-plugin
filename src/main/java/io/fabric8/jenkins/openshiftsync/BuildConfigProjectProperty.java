@@ -15,14 +15,21 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.cloudbees.hudson.plugins.folder.AbstractFolderProperty;
+import com.cloudbees.hudson.plugins.folder.AbstractFolderPropertyDescriptor;
 import hudson.Extension;
+import hudson.model.Item;
 import hudson.model.Job;
 import hudson.model.JobProperty;
 import hudson.model.JobPropertyDescriptor;
+import hudson.util.DescribableList;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.openshift.api.model.BuildConfig;
+import jenkins.branch.OrganizationFolder;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.kohsuke.stapler.DataBoundConstructor;
+
+import java.io.IOException;
 
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 
@@ -75,8 +82,23 @@ public class BuildConfigProjectProperty extends JobProperty<Job<?, ?>> {
       "serial");
   }
 
-  public static final BuildConfigProjectProperty getProperty(Job job) {
-    return (BuildConfigProjectProperty) job.getProperty(BuildConfigProjectProperty.class);
+  public static final BuildConfigProjectProperty getProperty(Item item) {
+    BuildConfigProjectProperty answer = null;
+    if (item instanceof Job) {
+      Job job = (Job) item;
+      answer = (BuildConfigProjectProperty) job.getProperty(BuildConfigProjectProperty.class);
+    }
+    if (answer == null) {
+      
+    }
+    return null;
+  }
+
+  public static final void setProperty(Item item, BuildConfigProjectProperty property) throws IOException {
+    if (item instanceof Job) {
+      Job job = (Job) item;
+      job.addProperty(property);
+    }
   }
 
   public BuildConfig getBuildConfig() {
