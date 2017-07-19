@@ -542,7 +542,7 @@ public class OpenShiftUtils {
    */
   public static String removePropertiesFromXml(String xml) throws TransformerException, IOException, SAXException, ParserConfigurationException {
     Document doc = XmlUtils.parseDoc(xml);
-    NodeList list = doc.getElementsByTagName("properties");
+    NodeList list = doc.getElementsByTagName("io.fabric8.jenkins.openshiftsync.BuildConfigProjectProperty");
     for (int i = 0, size = list.getLength(); i < size; i++) {
       Node item = list.item(i);
       XmlUtils.detach(item);

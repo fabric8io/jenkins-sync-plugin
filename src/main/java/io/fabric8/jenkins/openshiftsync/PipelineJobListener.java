@@ -18,9 +18,9 @@ package io.fabric8.jenkins.openshiftsync;
 import com.google.common.base.Objects;
 import hudson.Extension;
 import hudson.XmlFile;
+import hudson.model.AbstractItem;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
-import hudson.model.Job;
 import hudson.model.listeners.ItemListener;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.DoneableConfigMap;
@@ -135,14 +135,17 @@ public class PipelineJobListener extends ItemListener {
   public void upsertItem(Item item) {
     if (item instanceof WorkflowJob) {
       upsertWorkflowJob((WorkflowJob) item);
-    } else if (item instanceof ItemGroup) {
-      upsertItemGroup((ItemGroup) item);
-    } else if (item instanceof Job) {
-      upsertJob((Job) item);
+    } else {
+      if (item instanceof ItemGroup) {
+        upsertChildren((ItemGroup) item);
+      }
+      if (item instanceof AbstractItem) {
+        upsertJob((AbstractItem) item);
+      }
     }
   }
 
-  private void upsertJob(Job job) {
+  private void upsertJob(AbstractItem job) {
     BuildConfigProjectProperty property = ConfigMapToJobMap.getOrFindProperty(job);
     if (property != null) {
       String newConfigXml = null;
@@ -199,14 +202,12 @@ public class PipelineJobListener extends ItemListener {
     }
   }
 
-  private void upsertItemGroup(ItemGroup itemGroup) {
+  private void upsertChildren(ItemGroup itemGroup) {
     Collection items = itemGroup.getItems();
     if (items != null) {
       for (Object child : items) {
-        if (child instanceof WorkflowJob) {
-          upsertWorkflowJob((WorkflowJob) child);
-        } else if (child instanceof ItemGroup) {
-          upsertItemGroup((ItemGroup) child);
+        if (child instanceof Item) {
+          upsertItem((Item) child);
         }
       }
     }

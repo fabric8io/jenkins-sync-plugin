@@ -23,7 +23,6 @@ import hudson.XmlFile;
 import hudson.model.AbstractItem;
 import hudson.model.BuildableItem;
 import hudson.model.Cause;
-import hudson.model.FreeStyleProject;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.model.Job;
@@ -59,13 +58,11 @@ import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.CONFIG_XML;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.ROOT_JOB;
-import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.RUN_POLICY;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.TRIGGER_ON_CHANGE;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.getJobFromConfigMap;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.initializeConfigMapToJobMap;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.putJobWithConfigMap;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.removeJobWithConfigMap;
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getFullNameParent;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getNamespace;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
@@ -186,7 +183,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
             boolean rootJob = OpenShiftUtils.isConfigMapFlagEnabled(configMap, ROOT_JOB);
             if (rootJob) {
               jobFullName = getName(configMap);
-            }             
+            }
             AbstractItem job = getJobFromConfigMap(configMap);
             Jenkins activeInstance = Jenkins.getActiveInstance();
             ItemGroup parent = activeInstance;
@@ -198,12 +195,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
             }
             boolean newJob = job == null;
             boolean updated = true;
-            if (newJob) {
-              if (!rootJob) {
-                parent = getFullNameParent(activeInstance, jobFullName, getNamespace(configMap));
-              }
-              job = new FreeStyleProject(parent, jobName);
-            } else {
+            if (!newJob) {
               XmlFile configFile = job.getConfigFile();
               if (configFile != null) {
                 String oldConfigXml = configFile.asString();
@@ -216,29 +208,34 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
               return null;
             }
 
-            BulkChange bk = new BulkChange(job);
 
-            BuildConfigProjectProperty buildConfigProjectProperty = ConfigMapToJobMap.getOrFindProperty(job);
-            if (buildConfigProjectProperty != null) {
-              long updatedBCResourceVersion = parseResourceVersion(configMap);
-              long oldBCResourceVersion = parseResourceVersion(buildConfigProjectProperty.getResourceVersion());
-              BuildConfigProjectProperty newProperty = new BuildConfigProjectProperty(configMap);
-              if (updatedBCResourceVersion <= oldBCResourceVersion &&
-                      newProperty.getUid().equals(buildConfigProjectProperty.getUid()) &&
-                      newProperty.getNamespace().equals(buildConfigProjectProperty.getNamespace()) &&
-                      newProperty.getName().equals(buildConfigProjectProperty.getName())) {
-                return null;
+            BuildConfigProjectProperty buildConfigProjectProperty = null;
+            if (job != null) {
+              buildConfigProjectProperty = ConfigMapToJobMap.getOrFindProperty(job);
+              if (buildConfigProjectProperty != null) {
+                long updatedBCResourceVersion = parseResourceVersion(configMap);
+                long oldBCResourceVersion = parseResourceVersion(buildConfigProjectProperty.getResourceVersion());
+                BuildConfigProjectProperty newProperty = new BuildConfigProjectProperty(configMap);
+                if (updatedBCResourceVersion <= oldBCResourceVersion &&
+                  newProperty.getUid().equals(buildConfigProjectProperty.getUid()) &&
+                  newProperty.getNamespace().equals(buildConfigProjectProperty.getNamespace()) &&
+                  newProperty.getName().equals(buildConfigProjectProperty.getName())) {
+                  return null;
+                }
+                buildConfigProjectProperty.setUid(newProperty.getUid());
+                buildConfigProjectProperty.setNamespace(newProperty.getNamespace());
+                buildConfigProjectProperty.setName(newProperty.getName());
+                buildConfigProjectProperty.setResourceVersion(newProperty.getResourceVersion());
+                buildConfigProjectProperty.setBuildRunPolicy(newProperty.getBuildRunPolicy());
               }
-              buildConfigProjectProperty.setUid(newProperty.getUid());
-              buildConfigProjectProperty.setNamespace(newProperty.getNamespace());
-              buildConfigProjectProperty.setName(newProperty.getName());
-              buildConfigProjectProperty.setResourceVersion(newProperty.getResourceVersion());
-              buildConfigProjectProperty.setBuildRunPolicy(newProperty.getBuildRunPolicy());
-
-            } else {
+            }
+            if (buildConfigProjectProperty == null) {
               buildConfigProjectProperty = new BuildConfigProjectProperty(configMap);
             }
-            ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty, job);
+            BulkChange bk = null;
+            if (job != null) {
+              bk = new BulkChange(job);
+            }
 
             InputStream jobStream = new ByteArrayInputStream(configXml.getBytes(StandardCharsets.UTF_8));
 
@@ -265,27 +262,35 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
 
             }
 
+            if (job == null) {
+              Item item = activeInstance.getItemByFullName(jobFullName);
+              if (item instanceof AbstractItem) {
+                job = (AbstractItem) item;
+              }
+            }
+            if (job == null) {
+              logger.warning("Could not find new job " + jobFullName);
+              return null;
+            }
+            ConfigMapToJobMap.putBuildConfigProjectProperty(buildConfigProjectProperty, job);
             BuildConfigProjectProperty.setProperty(job, buildConfigProjectProperty);
 
             if (updated) {
               maybeScheduleConfigMapJob(job, configMap);
             }
-            bk.commit();
+            if (bk != null) {
+              bk.commit();
+            }
             String fullName = job.getFullName();
             Job currentJob = activeInstance.getItemByFullName(fullName, Job.class);
-            if (currentJob == null && parent instanceof Folder && job instanceof TopLevelItem) {
+            if (parent instanceof Folder && job instanceof TopLevelItem) {
               // we should never need this but just in case there's an odd timing issue or something...
               TopLevelItem top = (TopLevelItem) job;
               Folder folder = (Folder) parent;
               folder.add(top, jobName);
-              currentJob = activeInstance.getItemByFullName(fullName, Job.class);
             }
-            if (currentJob == null) {
-              logger.warning("Could not find created job " + fullName + " for ConfigMap: " + getNamespace(configMap) + "/" + getName(configMap));
-            } else {
-              //logger.info((newJob ? "created" : "updated" ) + " job " + fullName + " with path " + jobFullName + " from ConfigMap: " + getNamespace(configMap) + "/" + getName(configMap));
-              putJobWithConfigMap(currentJob, configMap);
-            }
+            //logger.info((newJob ? "created" : "updated" ) + " job " + fullName + " with path " + jobFullName + " from ConfigMap: " + getNamespace(configMap) + "/" + getName(configMap));
+            putJobWithConfigMap(job, configMap, buildConfigProjectProperty);
             return null;
           }
         });

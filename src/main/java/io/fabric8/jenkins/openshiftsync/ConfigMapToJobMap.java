@@ -59,7 +59,7 @@ public class ConfigMapToJobMap {
     return configMapToJobMap.get(uid);
   }
 
-  static synchronized void putJobWithConfigMap(Job job, ConfigMap configMap) {
+  static synchronized void putJobWithConfigMap(AbstractItem job, ConfigMap configMap, BuildConfigProjectProperty property) {
     if (configMap == null) {
       throw new IllegalArgumentException("ConfigMap cannot be null");
     }
@@ -70,7 +70,9 @@ public class ConfigMapToJobMap {
     if (meta == null) {
       throw new IllegalArgumentException("ConfigMap must contain valid metadata");
     }
-    putJobWithConfigMapUid(job, meta.getUid());
+    String uid =  meta.getUid();
+    putJobWithConfigMapUid(job, uid);
+    uuidToProperty.put(uid, property);
   }
 
   static synchronized void putJobWithConfigMapUid(AbstractItem job, String uid) {
@@ -78,6 +80,7 @@ public class ConfigMapToJobMap {
       throw new IllegalArgumentException("ConfigMap uid must not be blank");
     }
     configMapToJobMap.put(uid, job);
+
   }
 
   static synchronized void removeJobWithConfigMap(ConfigMap configMap) {
