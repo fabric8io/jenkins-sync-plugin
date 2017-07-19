@@ -311,7 +311,8 @@ public class JenkinsUtils {
     OpenShiftClient openShiftClient = getOpenShiftClient();
     FilterWatchListDeletable<Build, BuildList, Boolean, Watch, Watcher<Build>> resource = openShiftClient.builds().
             inNamespace(bcp.getNamespace()).withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName());
-    if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+    // we can't use field filters on the new API Groups API
+    if (openShiftClient.supportsApiPath("/oapi") && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
       resource = resource.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW);
     }
     List<Build> builds = resource.list().getItems();
