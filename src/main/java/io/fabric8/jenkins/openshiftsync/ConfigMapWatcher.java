@@ -63,6 +63,7 @@ import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.getJobFromConfi
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.initializeConfigMapToJobMap;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.putJobWithConfigMap;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapToJobMap.removeJobWithConfigMap;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getFullNameParent;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getName;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getNamespace;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
@@ -195,7 +196,11 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
             }
             boolean newJob = job == null;
             boolean updated = true;
-            if (!newJob) {
+            if (newJob) {
+              if (!rootJob) {
+                parent = getFullNameParent(activeInstance, jobFullName, getNamespace(configMap));
+              }
+            } else {
               XmlFile configFile = job.getConfigFile();
               if (configFile != null) {
                 String oldConfigXml = configFile.asString();
@@ -282,7 +287,6 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
               bk.commit();
             }
             String fullName = job.getFullName();
-            Job currentJob = activeInstance.getItemByFullName(fullName, Job.class);
             if (parent instanceof Folder && job instanceof TopLevelItem) {
               // we should never need this but just in case there's an odd timing issue or something...
               TopLevelItem top = (TopLevelItem) job;
