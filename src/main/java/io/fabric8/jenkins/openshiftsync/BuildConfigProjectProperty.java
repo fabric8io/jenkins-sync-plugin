@@ -88,10 +88,7 @@ public class BuildConfigProjectProperty extends JobProperty<Job<?, ?>> {
       Job job = (Job) item;
       answer = (BuildConfigProjectProperty) job.getProperty(BuildConfigProjectProperty.class);
     }
-    if (answer == null) {
-      
-    }
-    return null;
+    return answer;
   }
 
   public static final void setProperty(Item item, BuildConfigProjectProperty property) throws IOException {

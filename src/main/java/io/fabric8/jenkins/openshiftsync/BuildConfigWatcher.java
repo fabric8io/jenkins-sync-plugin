@@ -43,14 +43,16 @@ import org.apache.commons.beanutils.BeanUtilsBean;
 import org.apache.tools.ant.filters.StringInputStream;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
-import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
-import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -61,6 +63,7 @@ import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.getJobFromBui
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.initializeBuildConfigToJobMap;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.putJobWithBuildConfig;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.removeJobWithBuildConfig;
+import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.removeJobWithBuildConfigUid;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMapper.mapBuildConfigToFlow;
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL;
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL_LATEST_ONLY;
@@ -104,6 +107,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
         try {
           logger.fine("listing BuildConfigs resources");
           final BuildConfigList buildConfigs = getOpenShiftClient().buildConfigs().inNamespace(namespace).list();
+          removeJobsForMissingBuildConfigs(buildConfigs);
           onInitialBuildConfigs(buildConfigs);
           logger.fine("handled BuildConfigs resources");
           if (buildConfigWatch == null) {
@@ -139,6 +143,80 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
       }
     }
   }
+
+  private synchronized void removeJobsForMissingBuildConfigs(BuildConfigList buildConfigs) {
+    Set<String> names = new HashSet<>();
+    List<BuildConfig> items = buildConfigs.getItems();
+    if (items != null) {
+      for (BuildConfig buildConfig : items) {
+        String name = getName(buildConfig);
+        if (name != null) {
+          names.add(name);
+        }
+      }
+    }
+    List<BuildConfigProjectProperty> propertiesToDelete = new ArrayList<>();
+    deleteOldJobs(Jenkins.getActiveInstance(), namespace, names, propertiesToDelete);
+    for (BuildConfigProjectProperty property : propertiesToDelete) {
+      try {
+        removeJobWithBuildConfigUid(property.getUid());
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Failed to remove BuildConfigProjectProperty " + property + " due to: " + e, e);
+      }
+    }
+  }
+
+
+  private void deleteOldJobs(ItemGroup itemGroup, String ns, Set<String> buildConfigNames, List<BuildConfigProjectProperty> propertiesToDelete) {
+    Collection items = itemGroup.getItems();
+    if (items != null) {
+      for (Object object : items) {
+        if (object instanceof ItemGroup) {
+          deleteOldJobs((ItemGroup) object, ns, buildConfigNames, propertiesToDelete);
+        }
+        if (object instanceof WorkflowJob) {
+          WorkflowJob job = (WorkflowJob) object;
+          BuildConfigProjectProperty property = BuildConfigProjectProperty.getProperty(job);
+          if (property != null) {
+            String name = property.getName();
+            String namespace = property.getNamespace();
+            if (ns.equals(namespace) && !buildConfigNames.contains(name)) {
+              propertiesToDelete.add(property);
+              deleteOldJob(job, property);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private void deleteOldJob(final WorkflowJob job, final BuildConfigProjectProperty property) {
+    if (job != null) {
+      logger.info("Deleting old job " + job.getFullName() + " due to the associated BuildConfig being deleted");
+      try {
+        ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
+          @Override
+          public Void call() throws Exception {
+            ItemGroup parent = job.getParent();
+            try {
+              job.delete();
+            } catch (Exception e) {
+              logger.log(Level.WARNING, "Failed to delete job " + job.getFullName() + " due to: " + e, e);
+            } finally {
+              Jenkins.getActiveInstance().rebuildDependencyGraphAsync();
+            }
+            if (parent instanceof Item) {
+              removeBuildConfigJobFromFolderPluginJob((Item) parent, property.getName());
+            }
+            return null;
+          }
+        });
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Failed deleting job " + job.getFullName() + " due to: " + e, e);
+      }
+    }
+  }
+
 
   private synchronized void onInitialBuildConfigs(BuildConfigList buildConfigs) {
     List<BuildConfig> items = buildConfigs.getItems();
@@ -321,8 +399,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
       });
     }
   }
-
-  private void removeBuildConfigJobFromFolderPluginJob(Item parent, BuildConfig buildConfig, Job job) {
+  private void removeBuildConfigJobFromFolderPluginJob(Item parent, String name) {
     if (parent instanceof OrganizationFolder) {
       OrganizationFolder organizationFolder = (OrganizationFolder) parent;
       DescribableList<SCMNavigator, SCMNavigatorDescriptor> navigators = organizationFolder.getNavigators();
@@ -337,9 +414,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
             } catch (Exception e) {
               logger.warning("Could not get pattern of navigator " + navigator + " due to: " + e);
             }
-            ObjectMeta metadata = buildConfig.getMetadata();
-            if (!Strings.isNullOrEmpty(pattern) && metadata != null) {
-              String name = metadata.getName();
+            if (!Strings.isNullOrEmpty(pattern)) {
               String newPattern = JenkinsUtils.removePattern(pattern, name);
               if (newPattern != null) {
                 try {
@@ -355,8 +430,16 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
     } else if (parent != null) {
       ItemGroup<? extends Item> grandParent = parent.getParent();
       if (grandParent instanceof Item) {
-        removeBuildConfigJobFromFolderPluginJob((Item) grandParent, buildConfig, job);
+        removeBuildConfigJobFromFolderPluginJob((Item) grandParent, name);
       }
+    }
+  }
+
+  private void removeBuildConfigJobFromFolderPluginJob(Item parent, BuildConfig buildConfig, Job job) {
+    ObjectMeta metadata = buildConfig.getMetadata();
+    if (metadata != null) {
+      String name = metadata.getName();
+      removeBuildConfigJobFromFolderPluginJob(parent, name);
     }
   }
 }
