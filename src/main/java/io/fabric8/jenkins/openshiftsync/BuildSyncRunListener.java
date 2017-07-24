@@ -56,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_NUMBER;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
@@ -222,13 +223,14 @@ public class BuildSyncRunListener extends RunListener<Run> {
       return;
     }
 
+    String buildConfigName = null;
     BuildCause cause = (BuildCause) run.getCause(BuildCause.class);
     if (isKubernetesCluster()) {
       if (cause == null) {
         Job parent = run.getParent();
         if (parent instanceof WorkflowJob) {
           WorkflowJob workflowJob = (WorkflowJob) parent;
-          String buildConfigName = getBuildConfigName(workflowJob);
+          buildConfigName = getBuildConfigName(workflowJob);
           String buildName = buildConfigName + "-" + run.getId();
           String uid = null;
           String gitUrl = null;
@@ -304,8 +306,9 @@ public class BuildSyncRunListener extends RunListener<Run> {
     String name = cause.getName();
     logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), name, phase});
     try {
+      boolean isS2ICluster = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
       BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
-      BuildFluent.MetadataNested<DoneableBuild> builder = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)
+      BuildFluent.MetadataNested<DoneableBuild> builder = isS2ICluster
               ? resource.edit().editMetadata() :
               resource.createOrReplaceWithNew().withNewMetadata().withName(name).addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
 
@@ -319,6 +322,14 @@ public class BuildSyncRunListener extends RunListener<Run> {
       }
       if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
         builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
+      }
+      if (!isS2ICluster) {
+        if (buildConfigName != null) {
+          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+          builder.addToLabels(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+        } else {
+          logger.warning("No BuildConfigName for build " + name);
+        }
       }
       builder
         .endMetadata()
