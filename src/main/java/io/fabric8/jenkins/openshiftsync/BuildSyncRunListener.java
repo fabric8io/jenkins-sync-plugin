@@ -224,6 +224,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
     }
 
     String buildConfigName = null;
+    String buildConfigNamespace = this.namespace;
     BuildCause cause = (BuildCause) run.getCause(BuildCause.class);
     if (isKubernetesCluster()) {
       if (cause == null) {
@@ -234,7 +235,6 @@ public class BuildSyncRunListener extends RunListener<Run> {
           String commit = null;
           String buildConfigUid = null;
           String uid = null;
-          String buildConfigNamespace = this.namespace;
           BuildConfigProjectProperty property = BuildConfigProjectProperty.getProperty(workflowJob);
           if (property != null) {
             buildConfigName = property.getName();
@@ -344,6 +344,11 @@ public class BuildSyncRunListener extends RunListener<Run> {
         .withPhase(phase)
         .withStartTimestamp(startTime)
         .withCompletionTimestamp(completionTime)
+        .editOrNewConfig()
+        .withKind("BuildConfig")
+        .withName(buildConfigName)
+        .withNamespace(buildConfigNamespace)
+        .endConfig()
         .endStatus()
         .done();
     } catch (KubernetesClientException e) {
