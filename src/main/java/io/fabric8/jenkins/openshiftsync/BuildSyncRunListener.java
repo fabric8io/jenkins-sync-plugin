@@ -230,13 +230,20 @@ public class BuildSyncRunListener extends RunListener<Run> {
         Job parent = run.getParent();
         if (parent instanceof WorkflowJob) {
           WorkflowJob workflowJob = (WorkflowJob) parent;
-          buildConfigName = getBuildConfigName(workflowJob);
-          String buildName = buildConfigName + "-" + run.getId();
-          String uid = null;
           String gitUrl = null;
           String commit = null;
           String buildConfigUid = null;
-          cause = new BuildCause(uid, namespace, buildName, gitUrl, commit, buildConfigUid);
+          String uid = null;
+          String buildConfigNamespace = this.namespace;
+          BuildConfigProjectProperty property = BuildConfigProjectProperty.getProperty(workflowJob);
+          if (property != null) {
+            buildConfigName = property.getName();
+            buildConfigNamespace = property.getNamespace();
+          } else {
+            buildConfigName = getBuildConfigName(workflowJob);
+          }
+          String buildName = buildConfigName + "-" + run.getId();
+          cause = new BuildCause(uid, buildConfigNamespace, buildName, gitUrl, commit, buildConfigUid);
         } else {
           return;
         }
