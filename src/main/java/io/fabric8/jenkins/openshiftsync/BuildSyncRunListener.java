@@ -338,18 +338,22 @@ public class BuildSyncRunListener extends RunListener<Run> {
           logger.warning("No BuildConfigName for build " + name);
         }
       }
-      builder
+      BuildFluent.StatusNested<DoneableBuild> statusNested = builder
         .endMetadata()
         .editOrNewStatus()
         .withPhase(phase)
         .withStartTimestamp(startTime)
-        .withCompletionTimestamp(completionTime)
-        .editOrNewConfig()
-        .withKind("BuildConfig")
-        .withName(buildConfigName)
-        .withNamespace(buildConfigNamespace)
-        .endConfig()
-        .endStatus()
+        .withCompletionTimestamp(completionTime);
+
+      if (!isS2ICluster && buildConfigName != null && !buildConfigName.isEmpty()) {
+        statusNested = statusNested
+          .editOrNewConfig()
+          .withKind("BuildConfig")
+          .withName(buildConfigName)
+          .withNamespace(buildConfigNamespace)
+          .endConfig();
+      }
+      statusNested.endStatus()
         .done();
     } catch (KubernetesClientException e) {
       if (HTTP_NOT_FOUND == e.getCode()) {
