@@ -15,8 +15,11 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
+import com.google.common.base.Objects;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
@@ -85,5 +88,37 @@ public class XmlUtils {
       transformerFactory = TransformerFactory.newInstance();
     }
     return transformerFactory;
+  }
+
+  /**
+   * Updates the element content if its different and returns true if it was changed
+   */
+  public static boolean setElementText(Element element, String value) {
+    String textContent = element.getTextContent();
+    if (Objects.equal(value, textContent)) {
+      return false;
+    }
+    element.setTextContent(value);
+    return true;
+  }
+
+  /**
+   * Returns the first child element for the given name
+   */
+  public static Element firstChild(Element element, String name) {
+    NodeList nodes = element.getChildNodes();
+    if (nodes != null) {
+      for (int i = 0, size = nodes.getLength(); i < size; i++) {
+        Node item = nodes.item(i);
+        if (item instanceof Element) {
+          Element childElement = (Element) item;
+
+          if (name.equals(childElement.getTagName())) {
+            return childElement;
+          }
+        }
+      }
+    }
+    return null;
   }
 }

@@ -26,6 +26,8 @@ import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
 import hudson.util.DescribableList;
 import hudson.util.XStream2;
+import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.ConfigMapList;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.Watch;
@@ -43,14 +45,17 @@ import org.apache.commons.beanutils.BeanUtilsBean;
 import org.apache.tools.ant.filters.StringInputStream;
 import org.jenkinsci.plugins.workflow.flow.FlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
+import org.w3c.dom.Document;
 
 import javax.xml.transform.Source;
+import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamSource;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
@@ -191,6 +196,8 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
   }
 
   private void deleteOldJob(final WorkflowJob job, final BuildConfigProjectProperty property) {
+    removeBuildConfigNameFromConfigMapJobs(property.getNamespace(), property.getName());
+    
     if (job != null) {
       logger.info("Deleting old job " + job.getFullName() + " due to the associated BuildConfig being deleted");
       try {
@@ -394,11 +401,73 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
           if (parent instanceof Item) {
             removeBuildConfigJobFromFolderPluginJob((Item) parent, buildConfig, job);
           }
+          removeBuildConfigFromConfigMapJobs(buildConfig);
           return null;
         }
       });
     }
   }
+
+  private void removeBuildConfigFromConfigMapJobs(BuildConfig buildConfig) {
+    ObjectMeta metadata = buildConfig.getMetadata();
+    if (metadata != null) {
+      removeBuildConfigNameFromConfigMapJobs(metadata.getNamespace(), metadata.getName());
+    }
+  }
+
+  private void removeBuildConfigNameFromConfigMapJobs(String ns, String buildConfigName) {
+    if (!Strings.isNullOrEmpty(ns) && !Strings.isNullOrEmpty(buildConfigName)) {
+      ConfigMapList cmList = null;
+      try {
+        cmList = getOpenShiftClient().configMaps().inNamespace(ns).withLabel("openshift.io/jenkins", "job").list();
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Failed to find ConfigMaps in namespace " + ns + " due to " + e, e);
+      }
+      if (cmList != null) {
+        List<ConfigMap> items = cmList.getItems();
+        if (items != null) {
+          for (ConfigMap configMap : items) {
+            removeBuildConfigFromConfigMap(ns, buildConfigName, configMap);
+          }
+        }
+      }
+    }
+  }
+
+  private void removeBuildConfigFromConfigMap(String ns, String buildConfigName, ConfigMap configMap) {
+    String configMapName = OpenShiftUtils.getName(configMap);
+    Map<String, String> data = configMap.getData();
+    if (data != null) {
+      String configXml = data.get("config.xml");
+      if (!Strings.isNullOrEmpty(configXml)) {
+        Document doc;
+        try {
+          doc = XmlUtils.parseDoc(configXml);
+        } catch (Exception e) {
+          logger.log(Level.WARNING, "Failed to parse config.xml from ConfigMap " + configMapName + ": " + e, e);
+          return;
+        }
+        boolean changed = ConfigXmlHelper.removeOrganisationPattern(doc, buildConfigName);
+        if (changed) {
+          try {
+            configXml = XmlUtils.toXml(doc);
+          } catch (TransformerException e) {
+            logger.log(Level.WARNING, "Failed to convert updated config.xml Document to XML for ConfigMap " + configMapName + ": " + e, e);
+            return;
+          }
+          data.put("config.xml", configXml);
+          try {
+            getOpenShiftClient().configMaps().inNamespace(ns).withName(configMapName).edit().addToData("config.xml", configXml).done();
+          } catch (Exception e) {
+            logger.log(Level.WARNING, "Failed to update config.xml in ConfigMap " + configMapName + ": " + e, e);
+          }
+        }
+      }
+    }
+  }
+
+
+
   private void removeBuildConfigJobFromFolderPluginJob(Item parent, String name) {
     if (parent instanceof OrganizationFolder) {
       OrganizationFolder organizationFolder = (OrganizationFolder) parent;
