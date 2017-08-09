@@ -23,6 +23,7 @@ import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.model.Job;
 import hudson.security.ACL;
+import hudson.security.ACLContext;
 import hudson.triggers.SafeTimerTask;
 import hudson.util.DescribableList;
 import hudson.util.XStream2;
@@ -200,24 +201,18 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
     
     if (job != null) {
       logger.info("Deleting old job " + job.getFullName() + " due to the associated BuildConfig being deleted");
-      try {
-        ACL.impersonate(ACL.SYSTEM, new NotReallyRoleSensitiveCallable<Void, Exception>() {
-          @Override
-          public Void call() throws Exception {
-            ItemGroup parent = job.getParent();
-            try {
-              job.delete();
-            } catch (Exception e) {
-              logger.log(Level.WARNING, "Failed to delete job " + job.getFullName() + " due to: " + e, e);
-            } finally {
-              Jenkins.getActiveInstance().rebuildDependencyGraphAsync();
-            }
-            if (parent instanceof Item) {
-              removeBuildConfigJobFromFolderPluginJob((Item) parent, property.getName());
-            }
-            return null;
-          }
-        });
+      try (ACLContext ignored = ACL.as(ACL.SYSTEM)) {
+        ItemGroup parent = job.getParent();
+        try {
+          job.delete();
+        } catch (Exception e) {
+          logger.log(Level.WARNING, "Failed to delete job " + job.getFullName() + " due to: " + e, e);
+        } finally {
+          Jenkins.getInstance().rebuildDependencyGraphAsync();
+        }
+        if (parent instanceof Item) {
+          removeBuildConfigJobFromFolderPluginJob((Item) parent, property.getName());
+        }
       } catch (Exception e) {
         logger.log(Level.WARNING, "Failed deleting job " + job.getFullName() + " due to: " + e, e);
       }
@@ -474,32 +469,44 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
       DescribableList<SCMNavigator, SCMNavigatorDescriptor> navigators = organizationFolder.getNavigators();
       if (navigators != null) {
         for (SCMNavigator navigator : navigators) {
-          if (navigator.getClass().getName().equals("org.jenkinsci.plugins.github_branch_source.GitHubSCMNavigator")) {
-            // lets try get the pattern property
-            BeanUtilsBean converter = new BeanUtilsBean();
-            String pattern = null;
-            try {
-              pattern = converter.getProperty(navigator, "pattern");
-            } catch (Exception e) {
-              logger.warning("Could not get pattern of navigator " + navigator + " due to: " + e);
-            }
-            if (!Strings.isNullOrEmpty(pattern)) {
-              String newPattern = JenkinsUtils.removePattern(pattern, name);
-              if (newPattern != null) {
-                try {
-                  converter.setProperty(navigator, "pattern", newPattern);
-                } catch (Exception e) {
-                  logger.warning("Could not update pattern of navigator " + navigator + " to " + pattern + " due to: " + e);
-                }
-              }
-            }
+          String navigatorClassName = navigator.getClass().getName();
+          if (navigatorClassName.equals("org.jenkinsci.plugins.github_branch_source.GitHubSCMNavigator")) {
+            removeRepoPattern(navigator, "pattern", name);
           }
+/*
+          TODO for now the source filter seems to show up as a pattern property - but later on we may need to do something funkier:
+
+          if (navigatorClassName.equals(REGEX_SCM_SOURCE_FILTER_TRAIT_ELEMENT)) {
+            removeRepoPattern(navigator, "regex", name);
+          }
+*/
         }
       }
     } else if (parent != null) {
       ItemGroup<? extends Item> grandParent = parent.getParent();
       if (grandParent instanceof Item) {
         removeBuildConfigJobFromFolderPluginJob((Item) grandParent, name);
+      }
+    }
+  }
+
+  private void removeRepoPattern(SCMNavigator navigator, String propertyName, String name) {
+    // lets try get the pattern property
+    BeanUtilsBean converter = new BeanUtilsBean();
+    String pattern = null;
+    try {
+      pattern = converter.getProperty(navigator, propertyName);
+    } catch (Exception e) {
+      logger.warning("Could not get pattern of navigator " + navigator + " due to: " + e);
+    }
+    if (!Strings.isNullOrEmpty(pattern)) {
+      String newPattern = JenkinsUtils.removePattern(pattern, name);
+      if (newPattern != null) {
+        try {
+          converter.setProperty(navigator, propertyName, newPattern);
+        } catch (Exception e) {
+          logger.warning("Could not update pattern of navigator " + navigator + " to " + pattern + " due to: " + e);
+        }
       }
     }
   }

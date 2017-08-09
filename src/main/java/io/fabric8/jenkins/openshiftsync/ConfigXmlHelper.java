@@ -26,6 +26,7 @@ import java.util.Objects;
  */
 public class ConfigXmlHelper {
   protected static final String GITHUB_SCM_NAVIGATOR_ELEMENT = "org.jenkinsci.plugins.github__branch__source.GitHubSCMNavigator";
+  protected static final String REGEX_SCM_SOURCE_FILTER_TRAIT_ELEMENT = "jenkins.scm.impl.trait.RegexSCMSourceFilterTrait";
 
 
   /**
@@ -36,21 +37,36 @@ public class ConfigXmlHelper {
    * @return true if the XML was modified
    */
   public static boolean removeOrganisationPattern(Document doc, String buildConfigName) {
+    boolean answer = false;
     Element githubNavigator = getGithubScmNavigatorElement(doc);
     if (githubNavigator == null) {
       return false;
     }
-    Element patternElement = XmlUtils.firstChild(githubNavigator, "pattern");
-    if (patternElement == null) {
-      return false;
+    if (removePattern(XmlUtils.firstChild(githubNavigator, "pattern"), buildConfigName)) {
+      answer = true;
     }
-    String oldPattern = patternElement.getTextContent();
-    String newPattern = JenkinsUtils.removePattern(oldPattern, buildConfigName);
-    if (Objects.equals(oldPattern, newPattern)) {
-      return false;
+    Element traitsElement = XmlUtils.firstChild(githubNavigator, "traits");
+    if (traitsElement != null) {
+      Element regexScmSourceFilterElement = XmlUtils.firstChild(traitsElement, REGEX_SCM_SOURCE_FILTER_TRAIT_ELEMENT);
+      if (regexScmSourceFilterElement != null) {
+        if (removePattern(XmlUtils.firstChild(regexScmSourceFilterElement, "regex"), buildConfigName)) {
+          answer = true;
+        }
+      }
     }
-    XmlUtils.setElementText(patternElement, newPattern);
-    return true;
+    return answer;
+  }
+
+  private static boolean removePattern(Element patternElement, String buildConfigName) {
+    if (patternElement != null) {
+      String oldPattern = patternElement.getTextContent();
+      String newPattern = JenkinsUtils.removePattern(oldPattern, buildConfigName);
+      if (!Objects.equals(oldPattern, newPattern)) {
+        XmlUtils.setElementText(patternElement, newPattern);
+        return true;
+      }
+    }
+    return false;
   }
 
   protected static Element getGithubScmNavigatorElement(Document doc) {
