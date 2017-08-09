@@ -169,7 +169,7 @@ public class CredentialsUtils {
       secretName,
       fixNull(username),
       new BasicSSHUserPrivateKey.DirectEntryPrivateKeySource(
-        new String(Base64.decode(sshKeyData), StandardCharsets.UTF_8)
+        base64Decode(sshKeyData)
       ),
       null,
       secretName
@@ -181,8 +181,17 @@ public class CredentialsUtils {
       CredentialsScope.GLOBAL,
       secretName,
       secretName,
-      new String(Base64.decode(usernameData), StandardCharsets.UTF_8),
-      new String(Base64.decode(passwordData), StandardCharsets.UTF_8)
+      base64Decode(usernameData),
+      base64Decode(passwordData)
     );
   }
+
+  private static String base64Decode(String data) {
+    byte[] byteArray = Base64.decode(data);
+    if (byteArray == null) {
+      return null;
+    }
+    return new String(byteArray, StandardCharsets.UTF_8);
+  }
+
 }
