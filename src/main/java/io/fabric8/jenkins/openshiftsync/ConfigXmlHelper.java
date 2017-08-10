@@ -61,7 +61,7 @@ public class ConfigXmlHelper {
     if (patternElement != null) {
       String oldPattern = patternElement.getTextContent();
       String newPattern = JenkinsUtils.removePattern(oldPattern, buildConfigName);
-      if (!Objects.equals(oldPattern, newPattern)) {
+      if (newPattern != null && !Objects.equals(oldPattern, newPattern)) {
         XmlUtils.setElementText(patternElement, newPattern);
         return true;
       }
