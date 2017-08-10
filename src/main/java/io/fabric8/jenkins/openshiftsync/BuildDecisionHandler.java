@@ -45,7 +45,10 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         if (wj.getFirstBuild() != null) {
           // lets only trigger an OpenShift build if the build index cause
           // happens on projects not built yet - if its already been built lets ignore
-          triggerOpenShiftBuild = false;
+
+          // TODO we could filter the WorkflowJob to find only OpenShift enabled jobs?
+          // or maybe use an annotation to enable triggering of jobs when the organisation rescans?
+          return false;
         }
       }
       if (triggerOpenShiftBuild) {
