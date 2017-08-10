@@ -345,10 +345,12 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
             job.updateByXml(source);
             job.save();
             logger.info("Updated job " + jobName + " from BuildConfig " + NamespaceName.create(buildConfig) + " with revision: " + buildConfig.getMetadata().getResourceVersion());
-            String bcpRunPolicy = buildConfigProjectProperty.getBuildRunPolicy();
-            if (existingBuildRunPolicy != null && !existingBuildRunPolicy.equals(bcpRunPolicy)) {
-              logger.info("Run policy changed from " + existingBuildRunPolicy + " to " + bcpRunPolicy + " for " + jobName + " so maybeSchedule next");
-              maybeScheduleNext(job);
+            if (buildConfigProjectProperty != null) {
+              String bcpRunPolicy = buildConfigProjectProperty.getBuildRunPolicy();
+              if (existingBuildRunPolicy != null && !existingBuildRunPolicy.equals(bcpRunPolicy)) {
+                logger.info("Run policy changed from " + existingBuildRunPolicy + " to " + bcpRunPolicy + " for " + jobName + " so maybeSchedule next");
+                maybeScheduleNext(job);
+              }
             }
           }
           bk.commit();
