@@ -23,6 +23,7 @@ import hudson.model.Queue;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
+import jenkins.branch.BranchIndexingCause;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
 import java.util.List;
@@ -36,30 +37,40 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
 
   @Override
   public boolean shouldSchedule(Queue.Task p, List<Action> actions) {
-    if (p instanceof WorkflowJob && !isOpenShiftBuildCause(actions)) {
+    if (p instanceof WorkflowJob) {
       WorkflowJob wj = (WorkflowJob) p;
-      String namespace = new GlobalPluginConfiguration().getNamespace();
-      String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
-      String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
-      String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
 
-      OpenShiftClient openShiftClient = getOpenShiftClient();
-      // if we have the build.openshift.io API Group but don't have S2I then we don't have the
-      // OpenShift build subsystem so lets just default to regular Jenkins jobs
-      if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
-        return true;
+      boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
+      if (triggerOpenShiftBuild && isBranchIndexingCause(actions)) {
+        if (wj.getFirstBuild() != null) {
+          // lets only trigger an OpenShift build if the build index cause
+          // happens on projects not built yet - if its already been built lets ignore
+          triggerOpenShiftBuild = false;
+        }
       }
-      openShiftClient.buildConfigs()
-        .inNamespace(namespace).withName(jobName)
-        .instantiate(
-          new BuildRequestBuilder()
-            .withNewMetadata().withName(jobName).and()
-            .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
-            .build()
-        );
-      return false;
-    }
+      if (triggerOpenShiftBuild) {
+        String namespace = new GlobalPluginConfiguration().getNamespace();
+        String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
+        String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
+        String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
 
+        OpenShiftClient openShiftClient = getOpenShiftClient();
+        // if we have the build.openshift.io API Group but don't have S2I then we don't have the
+        // OpenShift build subsystem so lets just default to regular Jenkins jobs
+        if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+          return true;
+        }
+        openShiftClient.buildConfigs()
+          .inNamespace(namespace).withName(jobName)
+          .instantiate(
+            new BuildRequestBuilder()
+              .withNewMetadata().withName(jobName).and()
+              .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
+              .build()
+          );
+        return false;
+      }
+    }
     return true;
   }
 
@@ -69,6 +80,23 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         CauseAction causeAction = (CauseAction) action;
         for (Cause cause : causeAction.getCauses()) {
           if (cause instanceof BuildCause) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns true if this is the af branch indexing cause
+   */
+  private boolean isBranchIndexingCause(List<Action> actions) {
+    for (Action action : actions) {
+      if (action instanceof CauseAction) {
+        CauseAction causeAction = (CauseAction) action;
+        for (Cause cause : causeAction.getCauses()) {
+          if (cause instanceof BranchIndexingCause) {
             return true;
           }
         }
