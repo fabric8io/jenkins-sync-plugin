@@ -21,9 +21,9 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-      <groupId>org.sonatype.oss</groupId>
-      <artifactId>oss-parent</artifactId>
-      <version>9</version>
+    <groupId>org.jboss</groupId>
+    <artifactId>jboss-parent</artifactId>
+    <version>22</version>
   </parent>
 
   <groupId>io.fabric8.systests</groupId>
@@ -32,11 +32,7 @@
   <packaging>jar</packaging>
 
   <properties>
-<!--
-    <fabric8.version>2.2.102-SNAPSHOT</fabric8.version>
--->
-    <fabric8.version>2.2.100</fabric8.version>
-    <fabric8.devops.version>2.2.146</fabric8.devops.version>
+    <fabric8.version>2.3.3</fabric8.version>
   </properties>
 
   <name>OpenShift Jenkins Sync Plugin :: System Tests</name>
@@ -77,8 +73,11 @@
     <dependencies>
       <dependency>
         <groupId>io.fabric8</groupId>
-        <artifactId>fabric8-project-bom-with-platform-deps</artifactId>
+        <artifactId>fabric8-project</artifactId>
         <version>${fabric8.version}</version>
+        <!--
+        <artifactId>fabric8-project-bom-with-platform-deps</artifactId>
+        -->
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -95,16 +94,53 @@
       <version>1.1.11.Final</version>
       <scope>test</scope>
     </dependency>
+
+    <dependency>
+      <groupId>io.fabric8</groupId>
+      <artifactId>kubernetes-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>io.fabric8</groupId>
+      <artifactId>fabric8-utils</artifactId>
+      <!-- TODO remove me! -->
+      <version>2.3-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.fabric8</groupId>
+      <artifactId>jenkins-assertions</artifactId>
+      <!-- TODO remove me! -->
+      <version>2.3-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>fabric8-arquillian</artifactId>
-      <version>${fabric8.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-log4j12</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <version>4.12</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.offbytwo.jenkins</groupId>
+      <artifactId>jenkins-client</artifactId>
+      <version>0.3.7</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -118,38 +154,38 @@
     </testResources>
 
     <plugins>
-<!--
-      <plugin>
-        <groupId>com.mycila</groupId>
-        <artifactId>license-maven-plugin</artifactId>
-        <version>2.11</version>
-        <configuration>
-          <aggregate>true</aggregate>
-          <header>header.txt</header>
-          <properties>
-            <owner>Red Hat, Inc.</owner>
-          </properties>
-          <excludes>
-            <exclude>.editorconfig</exclude>
-            <exclude>LICENSE</exclude>
-            <exclude>work/**</exclude>
-            <exclude>*.sh</exclude>
-          </excludes>
-          <mapping>
-            <jelly>XML_STYLE</jelly>
-          </mapping>
-        </configuration>
-      </plugin>
--->
+      <!--
+            <plugin>
+              <groupId>com.mycila</groupId>
+              <artifactId>license-maven-plugin</artifactId>
+              <version>2.11</version>
+              <configuration>
+                <aggregate>true</aggregate>
+                <header>header.txt</header>
+                <properties>
+                  <owner>Red Hat, Inc.</owner>
+                </properties>
+                <excludes>
+                  <exclude>.editorconfig</exclude>
+                  <exclude>LICENSE</exclude>
+                  <exclude>work/**</exclude>
+                  <exclude>*.sh</exclude>
+                </excludes>
+                <mapping>
+                  <jelly>XML_STYLE</jelly>
+                </mapping>
+              </configuration>
+            </plugin>
+      -->
 
       <!-- system tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.18.1</version>
-<!--
-        <inherited>true</inherited>
--->
+        <!--
+                <inherited>true</inherited>
+        -->
         <configuration>
           <forkMode>never</forkMode>
           <includes>
