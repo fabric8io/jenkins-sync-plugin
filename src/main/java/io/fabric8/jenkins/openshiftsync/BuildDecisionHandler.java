@@ -23,6 +23,7 @@ import hudson.model.Queue;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
+import jenkins.branch.BranchEventCause;
 import jenkins.branch.BranchIndexingCause;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
@@ -44,7 +45,7 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       WorkflowJob wj = (WorkflowJob) p;
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
-      if (triggerOpenShiftBuild && isBranchIndexingCause(actions)) {
+      if (triggerOpenShiftBuild && isBranchCause(actions)) {
         if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isInQueue() || wj.isBuildBlocked()) {
           // lets only trigger an OpenShift build if the build index cause
           // happens on projects not built yet - if its already been built or is building lets ignore
@@ -114,12 +115,12 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   /**
    * Returns true if this is the af branch indexing cause
    */
-  private boolean isBranchIndexingCause(List<Action> actions) {
+  private boolean isBranchCause(List<Action> actions) {
     for (Action action : actions) {
       if (action instanceof CauseAction) {
         CauseAction causeAction = (CauseAction) action;
         for (Cause cause : causeAction.getCauses()) {
-          if (cause instanceof BranchIndexingCause) {
+          if (cause instanceof BranchIndexingCause || cause instanceof BranchEventCause) {
             return true;
           }
         }
