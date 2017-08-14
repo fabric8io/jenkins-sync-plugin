@@ -26,7 +26,9 @@ import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.branch.BranchIndexingCause;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getJenkinsURL;
@@ -34,6 +36,7 @@ import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient
 
 @Extension
 public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
+  private final Logger logger = Logger.getLogger(getClass().getName());
 
   @Override
   public boolean shouldSchedule(Queue.Task p, List<Action> actions) {
@@ -61,8 +64,10 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         // if we have the build.openshift.io API Group but don't have S2I then we don't have the
         // OpenShift build subsystem so lets just default to regular Jenkins jobs
         if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+          logger.info("Triggering Jenkins build on WorkflowJob " + wj.getFullName() + " due to running on kubernetes due to " + causeDescription(actions));
           return true;
         }
+        logger.info("Triggering OpenShift Build for WorkflowJob " + wj.getFullName() + " due to " + causeDescription(actions));
         openShiftClient.buildConfigs()
           .inNamespace(namespace).withName(jobName)
           .instantiate(
@@ -75,6 +80,21 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       }
     }
     return true;
+  }
+
+  private String causeDescription(List<Action> actions) {
+    List<String> causes = new ArrayList<>();
+    for (Action action : actions) {
+      if (action instanceof CauseAction) {
+        CauseAction causeAction = (CauseAction) action;
+        for (Cause cause : causeAction.getCauses()) {
+          if (cause != null) {
+            causes.add(cause.getClass().getName());
+          }
+        }
+      }
+    }
+    return String.join(",", causes);
   }
 
   private boolean isOpenShiftBuildCause(List<Action> actions) {
