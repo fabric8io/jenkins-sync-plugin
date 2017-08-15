@@ -38,6 +38,8 @@ import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient
 @Extension
 public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   private final Logger logger = Logger.getLogger(getClass().getName());
+  private String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
+
 
   @Override
   public boolean shouldSchedule(Queue.Task p, List<Action> actions) {
@@ -59,7 +61,11 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         String namespace = new GlobalPluginConfiguration().getNamespace();
         String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
         String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
-        String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), namespace), wj.getUrl());
+        String jenkinsNS = namespace;
+        if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
+          jenkinsNS = jenkinsNamespace;
+        }
+        String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), jenkinsNS), wj.getUrl());
 
         OpenShiftClient openShiftClient = getOpenShiftClient();
         // if we have the build.openshift.io API Group but don't have S2I then we don't have the
