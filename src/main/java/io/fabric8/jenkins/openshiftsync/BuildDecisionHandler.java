@@ -47,7 +47,7 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       WorkflowJob wj = (WorkflowJob) p;
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
-      if (triggerOpenShiftBuild && isBranchCause(wj, actions)) {
+      if (triggerOpenShiftBuild && !isBranchEventCausePush(wj, actions) && isBranchCause(actions)) {
         if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isInQueue() || wj.isBuildBlocked()) {
           // lets only trigger an OpenShift build if the build index cause
           // happens on projects not built yet - if its already been built or is building lets ignore
@@ -119,21 +119,25 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   }
 
   /**
-   * Returns true if this is the af branch indexing cause
+   * Returns true if this is a branch push event
    */
-  private boolean isBranchCause(WorkflowJob wj, List<Action> actions) {
+  private boolean isBranchEventCausePush(WorkflowJob wj, List<Action> actions) {
     for (Action action : actions) {
       if (action instanceof CauseAction) {
         CauseAction causeAction = (CauseAction) action;
-        for (Cause cause : causeAction.getCauses()) {
-          if (cause instanceof BranchIndexingCause) {
-            return true;
-          } else if (cause instanceof BranchEventCause) {
+        List<Cause> causes = causeAction.getCauses();
+        for (Cause cause : causes) {
+          if (cause instanceof BranchEventCause) {
             BranchEventCause branchEventCause = (BranchEventCause) cause;
+            String description = branchEventCause.getShortDescription();
             logger.info("BranchEventCause on Pipeline " + wj.getFullName() + " for origin " + branchEventCause.getOrigin() +
               " timestamp: " + branchEventCause.getTimestamp() +
-              " description: " + branchEventCause.getShortDescription());
-            return true;
+              " description: " + description);
+
+            // for push events lets create a build
+            if (description != null && description.toLowerCase().startsWith("push ")) {
+              return true;
+            }
           }
         }
       }
@@ -141,4 +145,21 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
     return false;
   }
 
+  /**
+   * Returns true if this is the a branch indexing or random branch event cause
+   */
+  private boolean isBranchCause(List<Action> actions) {
+    for (Action action : actions) {
+      if (action instanceof CauseAction) {
+        CauseAction causeAction = (CauseAction) action;
+        List<Cause> causes = causeAction.getCauses();
+        for (Cause cause : causes) {
+          if (cause instanceof BranchEventCause || cause instanceof BranchIndexingCause) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
 }
