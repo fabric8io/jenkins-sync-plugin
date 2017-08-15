@@ -47,7 +47,7 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       WorkflowJob wj = (WorkflowJob) p;
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
-      if (triggerOpenShiftBuild && isBranchCause(actions)) {
+      if (triggerOpenShiftBuild && isBranchCause(wj, actions)) {
         if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isInQueue() || wj.isBuildBlocked()) {
           // lets only trigger an OpenShift build if the build index cause
           // happens on projects not built yet - if its already been built or is building lets ignore
@@ -121,12 +121,18 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
   /**
    * Returns true if this is the af branch indexing cause
    */
-  private boolean isBranchCause(List<Action> actions) {
+  private boolean isBranchCause(WorkflowJob wj, List<Action> actions) {
     for (Action action : actions) {
       if (action instanceof CauseAction) {
         CauseAction causeAction = (CauseAction) action;
         for (Cause cause : causeAction.getCauses()) {
-          if (cause instanceof BranchIndexingCause || cause instanceof BranchEventCause) {
+          if (cause instanceof BranchIndexingCause) {
+            return true;
+          } else if (cause instanceof BranchEventCause) {
+            BranchEventCause branchEventCause = (BranchEventCause) cause;
+            logger.info("BranchEventCause on Pipeline " + wj.getFullName() + " for origin " + branchEventCause.getOrigin() +
+              " timestamp: " + branchEventCause.getTimestamp() +
+              " description: " + branchEventCause.getShortDescription());
             return true;
           }
         }
