@@ -25,10 +25,12 @@ import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.branch.BranchEventCause;
 import jenkins.branch.BranchIndexingCause;
+import jenkins.model.Jenkins;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
@@ -47,14 +49,23 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       WorkflowJob wj = (WorkflowJob) p;
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
-      if (triggerOpenShiftBuild && !isBranchEventCausePush(wj, actions) && isBranchCause(actions)) {
-        if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isInQueue() || wj.isBuildBlocked()) {
-          // lets only trigger an OpenShift build if the build index cause
-          // happens on projects not built yet - if its already been built or is building lets ignore
+      if (triggerOpenShiftBuild) {
+        if (isBranchEventCausePush(wj, actions)) {
+          if (isJobInQueue(wj)) {
+            // lets only trigger an OpenShift build for this git push event if we don't have a build already queued
+            return false;
+          }
+        } else {
+          if (isBranchCause(actions)) {
+            if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isBuildBlocked() || isJobInQueue(wj)) {
+              // lets only trigger an OpenShift build if the build index cause
+              // happens on projects not built yet - if its already been built or is building lets ignore
 
-          // TODO we could filter the WorkflowJob to find only OpenShift enabled jobs?
-          // or maybe use an annotation to enable triggering of jobs when the organisation rescans?
-          return false;
+              // TODO we could filter the WorkflowJob to find only OpenShift enabled jobs?
+              // or maybe use an annotation to enable triggering of jobs when the organisation rescans?
+              return false;
+            }
+          }
         }
       }
       if (triggerOpenShiftBuild) {
@@ -87,6 +98,41 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       }
     }
     return true;
+  }
+
+  private boolean isJobInQueue(WorkflowJob wj) {
+    if (wj.isInQueue()) {
+      return true;
+    }
+    Queue queue = Jenkins.getInstance().getQueue();
+    if (queue.contains(wj)) {
+      return true;
+    }
+    logger.info("Push request on Pipeline job " + wj.getFullName() + " and it is not in the build queue: " + queueSummary(queue));
+    return false;
+  }
+
+  private String queueSummary(Queue queue) {
+    try {
+      List<String> names = new ArrayList<>();
+      Queue.Item[] items = queue.getItems();
+      if (items != null) {
+        for (Queue.Item item : items) {
+          String name = item.getDisplayName();
+          Queue.Task task = item.task;
+          if (task != null) {
+            name += " " + task.getFullDisplayName();
+          }
+          names.add(name);
+        }
+      }
+      return String.join(",", names);
+    } catch (Exception e) {
+      return queue.toString() + ". Caught: " + e;
+    }
+  }
+
+  private void addBuildItemNames(Set<String> names, List<Queue.BuildableItem> items) {
   }
 
   private String causeDescription(List<Action> actions) {
