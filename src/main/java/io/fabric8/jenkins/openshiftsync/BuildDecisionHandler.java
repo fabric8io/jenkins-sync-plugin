@@ -76,9 +76,13 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
           jenkinsNS = jenkinsNamespace;
         }
-        String jobURL = joinPaths(getJenkinsURL(getOpenShiftClient(), jenkinsNS), wj.getUrl());
-
         OpenShiftClient openShiftClient = getOpenShiftClient();
+        if (openShiftClient == null) {
+          // the sync plugin may be disabled so lets assume we should trigger the build
+          return true;
+        }
+        String jobURL = joinPaths(getJenkinsURL(openShiftClient, jenkinsNS), wj.getUrl());
+
         // if we have the build.openshift.io API Group but don't have S2I then we don't have the
         // OpenShift build subsystem so lets just default to regular Jenkins jobs
         if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
