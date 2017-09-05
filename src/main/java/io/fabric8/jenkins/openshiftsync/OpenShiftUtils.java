@@ -268,7 +268,9 @@ public class OpenShiftUtils {
       }
     }
     if (StringUtils.isBlank(namespace)) {
-      namespace = client.getNamespace();
+      if (client != null) {
+        namespace = client.getNamespace();
+      }
       if (StringUtils.isBlank(namespace)) {
         namespace = OPENSHIFT_DEFAULT_NAMESPACE;
       }
