@@ -49,7 +49,16 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       WorkflowJob wj = (WorkflowJob) p;
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
+      OpenShiftClient openShiftClient = getOpenShiftClient();
+      if (openShiftClient == null) {
+        // the sync plugin may be disabled so lets assume we should trigger the build
+        return true;
+      }
       if (triggerOpenShiftBuild) {
+        // if on kubernetes let's always trigger
+        if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+          return true;
+        }
         if (isBranchEventCausePush(wj, actions)) {
           if (isJobInQueue(wj)) {
             // lets only trigger an OpenShift build for this git push event if we don't have a build already queued
@@ -57,7 +66,11 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
           }
         } else {
           if (isBranchCause(actions)) {
-            if (wj.getFirstBuild() != null || wj.isBuilding() || wj.isBuildBlocked() || isJobInQueue(wj)) {
+            boolean isPRBuild = false;
+            if (wj.getName() != null && wj.getName().startsWith("PR-")){
+              isPRBuild = true;
+            }
+            if ((wj.getFirstBuild() != null && !isPRBuild)|| wj.isBuilding() || wj.isBuildBlocked() || isJobInQueue(wj)) {
               // lets only trigger an OpenShift build if the build index cause
               // happens on projects not built yet - if its already been built or is building lets ignore
 
@@ -76,11 +89,7 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
           jenkinsNS = jenkinsNamespace;
         }
-        OpenShiftClient openShiftClient = getOpenShiftClient();
-        if (openShiftClient == null) {
-          // the sync plugin may be disabled so lets assume we should trigger the build
-          return true;
-        }
+
         String jobURL = joinPaths(getJenkinsURL(openShiftClient, jenkinsNS), wj.getUrl());
 
         // if we have the build.openshift.io API Group but don't have S2I then we don't have the
