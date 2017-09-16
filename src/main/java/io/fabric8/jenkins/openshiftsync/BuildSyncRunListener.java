@@ -310,56 +310,59 @@ public class BuildSyncRunListener extends RunListener<Run> {
       }
     }
 
-    String name = cause.getName();
-    logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), name, phase});
-    try {
-      boolean isS2ICluster = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
-      BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
-      BuildFluent.MetadataNested<DoneableBuild> builder = isS2ICluster
-              ? resource.edit().editMetadata() :
-              resource.createOrReplaceWithNew().withNewMetadata().withName(name).addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
+    // check for null as sync plugin may be disabled
+    if (openShiftClient !=  null) {
+      String name = cause.getName();
+      logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), name, phase});
+      try {
+        boolean isS2ICluster = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
+        BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
+        BuildFluent.MetadataNested<DoneableBuild> builder = isS2ICluster
+          ? resource.edit().editMetadata() :
+          resource.createOrReplaceWithNew().withNewMetadata().withName(name).addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
 
-      builder
-              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
-              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
-              .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
-      String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
-      if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
-        builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE, jenkinsNamespace);
-      }
-      if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
-        builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
-      }
-      if (!isS2ICluster) {
-        if (buildConfigName != null) {
-          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
-          builder.addToLabels(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
-        } else {
-          logger.warning("No BuildConfigName for build " + name);
+        builder
+          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
+          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
+          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
+        String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
+        if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
+          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE, jenkinsNamespace);
         }
-      }
-      BuildFluent.StatusNested<DoneableBuild> statusNested = builder
-        .endMetadata()
-        .editOrNewStatus()
-        .withPhase(phase)
-        .withStartTimestamp(startTime)
-        .withCompletionTimestamp(completionTime);
+        if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
+          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
+        }
+        if (!isS2ICluster) {
+          if (buildConfigName != null) {
+            builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+            builder.addToLabels(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+          } else {
+            logger.warning("No BuildConfigName for build " + name);
+          }
+        }
+        BuildFluent.StatusNested<DoneableBuild> statusNested = builder
+          .endMetadata()
+          .editOrNewStatus()
+          .withPhase(phase)
+          .withStartTimestamp(startTime)
+          .withCompletionTimestamp(completionTime);
 
-      if (!isS2ICluster && buildConfigName != null && !buildConfigName.isEmpty()) {
-        statusNested = statusNested
-          .editOrNewConfig()
-          .withKind("BuildConfig")
-          .withName(buildConfigName)
-          .withNamespace(buildConfigNamespace)
-          .endConfig();
-      }
-      statusNested.endStatus()
-        .done();
-    } catch (KubernetesClientException e) {
-      if (HTTP_NOT_FOUND == e.getCode()) {
-        runsToPoll.remove(run);
-      } else {
-        throw e;
+        if (!isS2ICluster && buildConfigName != null && !buildConfigName.isEmpty()) {
+          statusNested = statusNested
+            .editOrNewConfig()
+            .withKind("BuildConfig")
+            .withName(buildConfigName)
+            .withNamespace(buildConfigNamespace)
+            .endConfig();
+        }
+        statusNested.endStatus()
+          .done();
+      } catch (KubernetesClientException e) {
+        if (HTTP_NOT_FOUND == e.getCode()) {
+          runsToPoll.remove(run);
+        } else {
+          throw e;
+        }
       }
     }
   }
@@ -428,7 +431,11 @@ public class BuildSyncRunListener extends RunListener<Run> {
 
   private boolean isKubernetesCluster() {
     if (kubernetesCluster == null) {
-      kubernetesCluster = !getOpenShiftClient().supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
+      if (getOpenShiftClient() == null){
+        kubernetesCluster = true;
+      } else {
+        kubernetesCluster = !getOpenShiftClient().supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
+      }
     }
     return kubernetesCluster;
   }

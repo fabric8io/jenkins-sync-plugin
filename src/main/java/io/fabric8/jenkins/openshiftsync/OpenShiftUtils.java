@@ -288,7 +288,7 @@ public class OpenShiftUtils {
    * @return the external URL of the service
    */
   public static String getExternalServiceUrl(OpenShiftClient openShiftClient, String defaultProtocolText, String namespace, String serviceName) {
-    if (openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.ROUTE)) {
+    if (openShiftClient != null && openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.ROUTE)) {
       try {
         RouteList routes = openShiftClient.routes().inNamespace(namespace).list();
         for (Route route : routes.getItems()) {
@@ -309,21 +309,23 @@ public class OpenShiftUtils {
     }
     // lets try the portalIP instead
     try {
-      Service service = openShiftClient.services().inNamespace(namespace).withName(serviceName).get();
-      if (service != null) {
-        // if exposecontroller is being used
-        // see: https://github.com/fabric8io/exposecontroller/blob/master/README.md
-        String answer = getAnnotation(service, Annotations.FABRIC8_EXPOSE_URL);
-        if (answer != null) {
-          return answer;
-        }
-        ServiceSpec spec = service.getSpec();
-        if (spec != null) {
-          List<String> externalIPs = spec.getExternalIPs();
-          if (externalIPs != null) {
-            for (String externalIP : externalIPs) {
-              if (!Strings.isNullOrEmpty(externalIP)) {
-                return defaultProtocolText + externalIP;
+      if (openShiftClient != null) {
+        Service service = openShiftClient.services().inNamespace(namespace).withName(serviceName).get();
+        if (service != null) {
+          // if exposecontroller is being used
+          // see: https://github.com/fabric8io/exposecontroller/blob/master/README.md
+          String answer = getAnnotation(service, Annotations.FABRIC8_EXPOSE_URL);
+          if (answer != null) {
+            return answer;
+          }
+          ServiceSpec spec = service.getSpec();
+          if (spec != null) {
+            List<String> externalIPs = spec.getExternalIPs();
+            if (externalIPs != null) {
+              for (String externalIP : externalIPs) {
+                if (!Strings.isNullOrEmpty(externalIP)) {
+                  return defaultProtocolText + externalIP;
+                }
               }
             }
           }
