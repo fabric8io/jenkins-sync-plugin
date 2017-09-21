@@ -30,10 +30,13 @@ import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.model.listeners.RunListener;
 import hudson.triggers.SafeTimerTask;
+import io.fabric8.kubernetes.api.model.ObjectMeta;
+import io.fabric8.kubernetes.api.model.ObjectReference;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.dsl.LogWatch;
 import io.fabric8.openshift.api.model.Build;
-import io.fabric8.openshift.api.model.BuildFluent;
+import io.fabric8.openshift.api.model.BuildBuilder;
+import io.fabric8.openshift.api.model.BuildStatus;
 import io.fabric8.openshift.api.model.DoneableBuild;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
@@ -49,7 +52,9 @@ import org.kohsuke.stapler.DataBoundConstructor;
 import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
@@ -311,52 +316,77 @@ public class BuildSyncRunListener extends RunListener<Run> {
     }
 
     // check for null as sync plugin may be disabled
-    if (openShiftClient !=  null) {
+    if (openShiftClient != null) {
       String name = cause.getName();
       logger.log(FINE, "Patching build {0}/{1}: setting phase to {2}", new Object[]{cause.getNamespace(), name, phase});
       try {
         boolean isS2ICluster = openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE);
-        BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
-        BuildFluent.MetadataNested<DoneableBuild> builder = isS2ICluster
-          ? resource.edit().editMetadata() :
-          resource.createOrReplaceWithNew().withNewMetadata().withName(name).addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
+        Map<String, String> addAnnotations = new HashMap<>();
+        addAnnotations.put(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json);
+        addAnnotations.put(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl);
+        addAnnotations.put(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
 
-        builder
-          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON, json)
-          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI, buildUrl)
-          .addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL, logsUrl);
         String jenkinsNamespace = System.getenv("KUBERNETES_NAMESPACE");
         if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
-          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE, jenkinsNamespace);
+          addAnnotations.put(OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE, jenkinsNamespace);
         }
         if (pendingActionsJson != null && !pendingActionsJson.isEmpty()) {
-          builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
+          addAnnotations.put(OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON, pendingActionsJson);
         }
-        if (!isS2ICluster) {
+
+        BuildResource<Build, DoneableBuild, String, LogWatch> resource = openShiftClient.builds().inNamespace(cause.getNamespace()).withName(name);
+        if (isS2ICluster) {
+          resource.edit()
+            .editMetadata().addToAnnotations(addAnnotations).endMetadata()
+            .editOrNewStatus()
+            .withPhase(phase)
+            .withStartTimestamp(startTime)
+            .withCompletionTimestamp(completionTime)
+            .endStatus()
+            .done();
+        } else {
+          Build build = resource.get();
+          if (build == null) {
+            build = new BuildBuilder().withNewMetadata().withName(name).endMetadata().build();
+          }
+          OpenShiftUtils.addAnnotation(build, OPENSHIFT_ANNOTATIONS_BUILD_NUMBER, "" + run.getNumber());
+          ObjectMeta metadata = build.getMetadata();
+          Map<String, String> annotations = metadata.getAnnotations();
+          annotations.putAll(addAnnotations);
+
+          Map<String, String> labels = metadata.getLabels();
+          if (labels == null) {
+            labels = new HashMap<>();
+            metadata.setLabels(labels);
+          }
+
           if (buildConfigName != null) {
-            builder.addToAnnotations(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
-            builder.addToLabels(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+            annotations.put(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
+            labels.put(OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME, buildConfigName);
           } else {
             logger.warning("No BuildConfigName for build " + name);
           }
-        }
-        BuildFluent.StatusNested<DoneableBuild> statusNested = builder
-          .endMetadata()
-          .editOrNewStatus()
-          .withPhase(phase)
-          .withStartTimestamp(startTime)
-          .withCompletionTimestamp(completionTime);
 
-        if (!isS2ICluster && buildConfigName != null && !buildConfigName.isEmpty()) {
-          statusNested = statusNested
-            .editOrNewConfig()
-            .withKind("BuildConfig")
-            .withName(buildConfigName)
-            .withNamespace(buildConfigNamespace)
-            .endConfig();
+          BuildStatus status = build.getStatus();
+          if (status == null) {
+            status = new BuildStatus();
+            build.setStatus(status);
+          }
+          status.setPhase(phase);
+          status.setStartTimestamp(startTime);
+          status.setCompletionTimestamp(completionTime);
+          if (buildConfigName != null && !buildConfigName.isEmpty()) {
+            ObjectReference config = status.getConfig();
+            if (config == null) {
+              config = new ObjectReference();
+              status.setConfig(config);
+            }
+            config.setKind("BuildConfig");
+            config.setName(buildConfigName);
+            config.setNamespace(buildConfigNamespace);
+          }
+          resource.createOrReplace(build);
         }
-        statusNested.endStatus()
-          .done();
       } catch (KubernetesClientException e) {
         if (HTTP_NOT_FOUND == e.getCode()) {
           runsToPoll.remove(run);
