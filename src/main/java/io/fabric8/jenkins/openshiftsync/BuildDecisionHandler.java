@@ -48,15 +48,16 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
     if (p instanceof WorkflowJob) {
       WorkflowJob wj = (WorkflowJob) p;
 
+      // if this is a branch indexing scan don't trigger
+      if (isJobBranchIndexing(wj, actions)){
+        return false;
+      }
+
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
       OpenShiftClient openShiftClient = getOpenShiftClient();
-      if (openShiftClient == null) {
-        // the sync plugin may be disabled so lets assume we should trigger the build
-        return true;
-      }
       if (triggerOpenShiftBuild) {
         // if on kubernetes let's always trigger
-        if (!openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
+        if (openShiftClient != null && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
           return true;
         }
         if (isBranchEventCausePush(wj, actions)) {
@@ -90,6 +91,10 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
           jenkinsNS = jenkinsNamespace;
         }
 
+        // if we get this far and the sync plugin is disabled then trigger build
+        if (openShiftClient == null){
+          return true;
+        }
         String jobURL = joinPaths(getJenkinsURL(openShiftClient, jenkinsNS), wj.getUrl());
 
         // if we have the build.openshift.io API Group but don't have S2I then we don't have the
@@ -204,6 +209,23 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
     return false;
   }
 
+  /**
+   * Returns true if this is a organisation scan
+   */
+  private boolean isJobBranchIndexing(WorkflowJob wj, List<Action> actions) {
+    for (Action action : actions) {
+      if (action instanceof CauseAction) {
+        CauseAction causeAction = (CauseAction) action;
+        List<Cause> causes = causeAction.getCauses();
+        for (Cause cause : causes) {
+          if (cause instanceof BranchIndexingCause) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
   /**
    * Returns true if this is the a branch indexing or random branch event cause
    */

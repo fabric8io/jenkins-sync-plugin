@@ -111,16 +111,18 @@ public class ConfigMapToJobMap {
     if (answer == null) {
       /// we must have just edited the Job via the Jenkins UI so lets try find the old Job to find the old proeprty
       String fullName = getFullName(job);
-      Set<Map.Entry<String, AbstractItem>> entries = configMapToJobMap.entrySet();
-      for (Map.Entry<String, AbstractItem> entry : entries) {
-        String uid = entry.getKey();
-        AbstractItem item = entry.getValue();
-        if (fullName.equals(getFullName(item))) {
-          answer = BuildConfigProjectProperty.getProperty(item);
-          if (answer == null) {
-            answer = uuidToProperty.get(uid);
+      if (configMapToJobMap != null){
+        Set<Map.Entry<String, AbstractItem>> entries = configMapToJobMap.entrySet();
+        for (Map.Entry<String, AbstractItem> entry : entries) {
+          String uid = entry.getKey();
+          AbstractItem item = entry.getValue();
+          if (fullName.equals(getFullName(item))) {
+            answer = BuildConfigProjectProperty.getProperty(item);
+            if (answer == null) {
+              answer = uuidToProperty.get(uid);
+            }
+            break;
           }
-          break;
         }
       }
     }

@@ -31,7 +31,7 @@
   <packaging>hpi</packaging>
 
   <properties>
-    <jenkins.version>2.62</jenkins.version>
+    <jenkins.version>2.63</jenkins.version>
 
     <!-- Java Level to use. Java 7 required when using core >= 1.612 -->
     <java.level>8</java.level>
