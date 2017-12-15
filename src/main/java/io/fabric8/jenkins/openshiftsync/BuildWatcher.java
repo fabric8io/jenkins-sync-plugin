@@ -94,6 +94,7 @@ public class BuildWatcher implements Watcher<Build> {
           onInitialBuilds(newBuilds);
           logger.fine("handled Build resources");
           if (buildsWatch == null) {
+            logger.info("watching the BuildList");
             buildsWatch = builds.withResourceVersion(newBuilds.getMetadata().getResourceVersion()).watch(BuildWatcher.this);
           }
         } catch (Exception e) {
@@ -101,7 +102,7 @@ public class BuildWatcher implements Watcher<Build> {
         }
       }
     };
-    relister = Timer.get().scheduleAtFixedRate(task, 100, 10 * 1000, TimeUnit.MILLISECONDS);
+    relister = Timer.get().scheduleAtFixedRate(task,100,3 * 60 * 1000, TimeUnit.MILLISECONDS); // interval 3 minutes
   }
 
   public void stop() {

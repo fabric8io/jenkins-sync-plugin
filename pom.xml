@@ -121,7 +121,7 @@
       <artifactId>git</artifactId>
       <version>3.4.1</version>
     </dependency>
-    
+
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
       <artifactId>display-url-api</artifactId>
@@ -205,7 +205,7 @@
       <scope>test</scope>
     </dependency>
 
-    
+
     <!-- testing -->
     <dependency>
       <groupId>org.jenkins-ci.plugins.workflow</groupId>

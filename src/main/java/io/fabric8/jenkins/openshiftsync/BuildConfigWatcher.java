@@ -117,6 +117,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
           onInitialBuildConfigs(buildConfigs);
           logger.fine("handled BuildConfigs resources");
           if (buildConfigWatch == null) {
+            logger.info("watching the BuildConfigList");
             buildConfigWatch = getOpenShiftClient().buildConfigs().inNamespace(namespace).withResourceVersion(buildConfigs.getMetadata().getResourceVersion()).watch(BuildConfigWatcher.this);
           }
         } catch (Exception e) {
@@ -124,7 +125,7 @@ public class BuildConfigWatcher implements Watcher<BuildConfig> {
         }
       }
     };
-    relister = Timer.get().scheduleAtFixedRate(task, 100, 10 * 1000, TimeUnit.MILLISECONDS);
+    relister = Timer.get().scheduleAtFixedRate(task,100,3 * 60 * 1000, TimeUnit.MILLISECONDS); // interval 3 minutes
   }
 
   public synchronized void stop() {

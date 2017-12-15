@@ -104,6 +104,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
           onInitialConfigMaps(configMaps);
           logger.fine("handled ConfigMaps resources");
           if (configMapWatch == null) {
+            logger.info("watching the ConfigMapList");
             configMapWatch = getOpenShiftClient().configMaps().inNamespace(namespace).withResourceVersion(configMaps.getMetadata().getResourceVersion()).watch(ConfigMapWatcher.this);
           }
         } catch (Exception e) {
@@ -111,7 +112,7 @@ public class ConfigMapWatcher implements Watcher<ConfigMap> {
         }
       }
     };
-    relister = Timer.get().scheduleAtFixedRate(task, 100, 10 * 1000, TimeUnit.MILLISECONDS);
+    relister = Timer.get().scheduleAtFixedRate(task, 100,5 * 60 * 1000, TimeUnit.MILLISECONDS); // interval 5 minutes
   }
 
   public synchronized void stop() {
