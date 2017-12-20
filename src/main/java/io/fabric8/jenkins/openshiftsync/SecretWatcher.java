@@ -67,6 +67,7 @@ public class SecretWatcher implements Watcher<Secret> {
             onInitialSecrets(secrets);
             logger.fine("handled Secrets resources");
             if (secretWatch == null) {
+              logger.info("watching the SecretList");
               secretWatch = getOpenShiftClient().secrets().inNamespace(namespace).withLabel(LABEL_JENKINS, VALUE_SYNC).withResourceVersion(secrets.getMetadata().getResourceVersion()).watch(SecretWatcher.this);
             }
           } catch (Exception e) {
@@ -75,7 +76,7 @@ public class SecretWatcher implements Watcher<Secret> {
         }
       }
     };
-    relister = Timer.get().scheduleAtFixedRate(task, 100, 10 * 1000, TimeUnit.MILLISECONDS);
+    relister = Timer.get().scheduleAtFixedRate(task,100,5 * 60 * 1000, TimeUnit.MILLISECONDS); // interval 5 minutes
   }
 
   public synchronized void stop() {
