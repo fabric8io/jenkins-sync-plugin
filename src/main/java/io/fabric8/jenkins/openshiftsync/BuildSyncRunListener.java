@@ -84,8 +84,10 @@ import static java.util.logging.Level.WARNING;
 @Extension
 public class BuildSyncRunListener extends RunListener<Run> {
   private static final Logger logger = Logger.getLogger(BuildSyncRunListener.class.getName());
+  public static final String JENKINS_ROOT_URL_ENV_VAR = "JENKINS_ROOT_URL";
 
-  private long pollPeriodMs = 1000;
+  private long pollPeriodDelayMs = 1000;
+  private long pollPeriodMs = 1000*10; // default polling frequency is 10 seconds, initially it was 1 second
   private String namespace;
 
   private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
@@ -162,7 +164,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
           pollLoop();
         }
       };
-      Timer.get().scheduleAtFixedRate(task, pollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
+      Timer.get().scheduleAtFixedRate(task, pollPeriodDelayMs, pollPeriodMs, TimeUnit.MILLISECONDS);
     }
   }
 
@@ -258,7 +260,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
     }
 
     OpenShiftClient openShiftClient = getOpenShiftClient();
-    String rootUrl = OpenShiftUtils.getJenkinsURL(openShiftClient, namespace);
+    String rootUrl = getHostName(openShiftClient);
     String buildUrl = joinPaths(rootUrl, run.getUrl());
     String logsUrl = joinPaths(buildUrl, "/consoleText");
 
@@ -394,6 +396,16 @@ public class BuildSyncRunListener extends RunListener<Run> {
           throw e;
         }
       }
+    }
+  }
+
+  /*Fix for jenkins proxy/idler introduction to get the right URL for console*/
+  private String getHostName(OpenShiftClient openShiftClient) {
+    String rootUrlFromEnvVar = System.getenv(JENKINS_ROOT_URL_ENV_VAR);
+    if(rootUrlFromEnvVar != null) {
+      return rootUrlFromEnvVar.trim();
+    } else {
+      return OpenShiftUtils.getJenkinsURL(openShiftClient, namespace);
     }
   }
 
