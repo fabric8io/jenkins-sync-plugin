@@ -86,8 +86,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
   private static final Logger logger = Logger.getLogger(BuildSyncRunListener.class.getName());
   public static final String JENKINS_ROOT_URL_ENV_VAR = "JENKINS_ROOT_URL";
 
-  private long pollPeriodDelayMs = 1000;
-  private long pollPeriodMs = 1000*10; // default polling frequency is 10 seconds, initially it was 1 second
+  private long pollPeriodMs = 1000;
   private String namespace;
 
   private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
@@ -164,7 +163,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
           pollLoop();
         }
       };
-      Timer.get().scheduleAtFixedRate(task, pollPeriodDelayMs, pollPeriodMs, TimeUnit.MILLISECONDS);
+      Timer.get().scheduleAtFixedRate(task, pollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
     }
   }
 
