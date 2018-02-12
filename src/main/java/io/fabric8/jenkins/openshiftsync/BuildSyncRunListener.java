@@ -86,7 +86,8 @@ public class BuildSyncRunListener extends RunListener<Run> {
   private static final Logger logger = Logger.getLogger(BuildSyncRunListener.class.getName());
   public static final String JENKINS_ROOT_URL_ENV_VAR = "JENKINS_ROOT_URL";
 
-  private long pollPeriodMs = 1000;
+  private long delayPollPeriodMs = 1000;
+  private long pollPeriodMs = 1000 * 5; // 5 seconds to BUILD resource on OpenShift
   private String namespace;
 
   private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
@@ -163,7 +164,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
           pollLoop();
         }
       };
-      Timer.get().scheduleAtFixedRate(task, pollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
+      Timer.get().scheduleAtFixedRate(task, delayPollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
     }
   }
 
