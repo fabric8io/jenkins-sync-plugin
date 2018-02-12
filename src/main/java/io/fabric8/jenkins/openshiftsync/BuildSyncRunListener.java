@@ -259,7 +259,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
     }
 
     OpenShiftClient openShiftClient = getOpenShiftClient();
-    String rootUrl = getHostName(openShiftClient);
+    String rootUrl = getHostName(openShiftClient, namespace);
     String buildUrl = joinPaths(rootUrl, run.getUrl());
     String logsUrl = joinPaths(buildUrl, "/consoleText");
 
@@ -399,7 +399,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
   }
 
   /*Fix for jenkins proxy/idler introduction to get the right URL for console*/
-  private String getHostName(OpenShiftClient openShiftClient) {
+  public static String getHostName(OpenShiftClient openShiftClient, String namespace) {
     String rootUrlFromEnvVar = System.getenv(JENKINS_ROOT_URL_ENV_VAR);
     if(rootUrlFromEnvVar != null) {
       return rootUrlFromEnvVar.trim();
