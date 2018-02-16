@@ -26,3 +26,8 @@ Development Instructions
 * Install the plugin into a locally-running Jenkins
   Execute `mvn hpi:run`
   Navigate in brower to `http://localhost:8080/jenkins`
+
+synchronization Polling Frequencies
+-----------------------------------
+
+Build Sync: Default 5 seconds [BuildSyncRunListener](https://github.com/fabric8io/jenkins-sync-plugin/blob/master/src/main/java/io/fabric8/jenkins/openshiftsync/BuildSyncRunListener.java#L73)

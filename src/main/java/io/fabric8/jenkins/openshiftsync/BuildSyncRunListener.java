@@ -15,12 +15,7 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
-import com.cloudbees.workflow.rest.external.AtomFlowNodeExt;
-import com.cloudbees.workflow.rest.external.FlowNodeExt;
-import com.cloudbees.workflow.rest.external.PendingInputActionsExt;
-import com.cloudbees.workflow.rest.external.RunExt;
-import com.cloudbees.workflow.rest.external.StageNodeExt;
-import com.cloudbees.workflow.rest.external.StatusExt;
+import com.cloudbees.workflow.rest.external.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hudson.Extension;
@@ -51,31 +46,19 @@ import org.kohsuke.stapler.DataBoundConstructor;
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_CONFIG_NAME;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_NUMBER;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_BUILD_URI;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_LOG_URL;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_PENDING_INPUT_ACTION_JSON;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON;
+import static io.fabric8.jenkins.openshiftsync.Constants.*;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.getBuildConfigName;
 import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.maybeScheduleNext;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.formatTimestamp;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
-import static java.util.logging.Level.FINE;
-import static java.util.logging.Level.SEVERE;
-import static java.util.logging.Level.WARNING;
+import static java.util.logging.Level.*;
 
 /**
  * Listens to Jenkins Job build {@link Run} start and stop then ensure there's a suitable {@link Build} object in
@@ -86,7 +69,8 @@ public class BuildSyncRunListener extends RunListener<Run> {
   private static final Logger logger = Logger.getLogger(BuildSyncRunListener.class.getName());
   public static final String JENKINS_ROOT_URL_ENV_VAR = "JENKINS_ROOT_URL";
 
-  private long pollPeriodMs = 1000;
+  private long pollPeriodMs = 1000 * 5;  // 5 seconds
+  private long delayPollPeriodMs = 1000; // 1 seconds
   private String namespace;
 
   private transient Set<Run> runsToPoll = new CopyOnWriteArraySet<>();
@@ -163,7 +147,7 @@ public class BuildSyncRunListener extends RunListener<Run> {
           pollLoop();
         }
       };
-      Timer.get().scheduleAtFixedRate(task, pollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
+      Timer.get().scheduleAtFixedRate(task, delayPollPeriodMs, pollPeriodMs, TimeUnit.MILLISECONDS);
     }
   }
 
