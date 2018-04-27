@@ -35,12 +35,6 @@ public class BuildCause extends Cause {
 
   private String buildConfigUid;
 
-  private int numStages = -1;
-
-  private int numFlowNodes = -1;
-
-  private long lastUpdateToOpenshift = -1;
-
   public BuildCause(String uid, String namespace, String name, String gitUri, String commit, String buildConfigUid) {
     this.uid = uid;
     this.namespace = namespace;
@@ -48,13 +42,6 @@ public class BuildCause extends Cause {
     this.gitUri = gitUri;
     this.commit = commit;
     this.buildConfigUid = buildConfigUid;
-  }
-
-  public BuildCause(String uid, String namespace, String name, String gitUri, String commit, String buildConfigUid, int numStages, int numFlowNodes, long lastUpdateToOpenshift) {
-    this( uid,  namespace,  name,  gitUri,  commit,  buildConfigUid);
-    this.numStages = numStages;
-    this.numFlowNodes = numFlowNodes;
-    this.lastUpdateToOpenshift = lastUpdateToOpenshift;
   }
 
   public BuildCause(Build build, String buildConfigUid) {
@@ -117,29 +104,4 @@ public class BuildCause extends Cause {
   public String getBuildConfigUid() {
     return buildConfigUid;
   }
-
-  public int getNumStages() {
-    return numStages;
-  }
-
-  public void setNumStages(int numStages) {
-    this.numStages = numStages;
-  }
-
-  public int getNumFlowNodes() {
-    return numFlowNodes;
-  }
-
-  public void setNumFlowNodes(int numFlowNodes) {
-    this.numFlowNodes = numFlowNodes;
-  }
-
-  public long getLastUpdateToOpenshift() {
-    return lastUpdateToOpenshift;
-  }
-
-  public void setLastUpdateToOpenshift(long lastUpdateToOpenshift) {
-    this.lastUpdateToOpenshift = lastUpdateToOpenshift;
-  }
-
 }
