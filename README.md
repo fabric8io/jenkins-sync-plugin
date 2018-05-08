@@ -27,7 +27,26 @@ Development Instructions
   Execute `mvn hpi:run`
   Navigate in brower to `http://localhost:8080/jenkins`
 
-synchronization Polling Frequencies
+Synchronization Polling Frequencies
 -----------------------------------
 
 Build Sync: Default 5 seconds [BuildSyncRunListener](https://github.com/fabric8io/jenkins-sync-plugin/blob/master/src/main/java/io/fabric8/jenkins/openshiftsync/BuildSyncRunListener.java#L73)
+
+Deploying the changes for OSIO
+------------------------------
+
+If you are making changes for OSIO, you need to do work on job-to-bc branch instead of master branch, after doing all your development work and testing it properly, you need follow the following steps:
+
+Assuming you are in jenkins-sync-plugin folder.
+
+* Generate hpi file
+  Execute `mvn package`
+  
+This will generate openshift-sync.hpi in your target folder. After that you need to create jpi file from this hpi file and need to send a PR to [openshift-jenkins-s2i-config](https://github.com/fabric8io/openshift-jenkins-s2i-config) 
+
+Assuming jenkins-sync-plugin and openshift-jenkins-s2i-config are cloned at same location.
+
+* Generate jpi file and copy to openshift-s2i-config
+  Execute `cp ../jenkins-sync-plugin/target/openshift-sync.hpi plugins/openshift-sync.jpi`
+  
+After you need to send a PR to both jenkins-sync plugin:job-to-bc and openshift-jenkins-s2i-config:master
