@@ -29,6 +29,7 @@ public class Constants {
   public static final String OPENSHIFT_ANNOTATIONS_JENKINS_STATUS_JSON = "openshift.io/jenkins-status-json";
   public static final String OPENSHIFT_ANNOTATIONS_JENKINS_NAMESPACE = "openshift.io/jenkins-namespace";
   public static final String OPENSHIFT_LABELS_BUILD_CONFIG_NAME = "openshift.io/build-config.name";
+  public static final String OPENSHIFT_LABELS_BUILD_CONFIG_GIT_REPOSITORY_NAME = "openshift.io/gitRepository";
 
   public static final String OPENSHIFT_SECRETS_DATA_USERNAME = "username";
   public static final String OPENSHIFT_SECRETS_DATA_PASSWORD = "password";

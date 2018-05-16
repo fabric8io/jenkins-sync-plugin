@@ -27,13 +27,7 @@ import io.fabric8.kubernetes.api.model.DoneableConfigMap;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.dsl.Resource;
-import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.BuildConfigBuilder;
-import io.fabric8.openshift.api.model.BuildConfigSpec;
-import io.fabric8.openshift.api.model.BuildSource;
-import io.fabric8.openshift.api.model.BuildStrategy;
-import io.fabric8.openshift.api.model.GitBuildSource;
-import io.fabric8.openshift.api.model.JenkinsPipelineBuildStrategy;
+import io.fabric8.openshift.api.model.*;
 import io.fabric8.openshift.client.OpenShiftClient;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
@@ -41,12 +35,14 @@ import org.kohsuke.stapler.DataBoundConstructor;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMap.removeJobWithBuildConfig;
 import static io.fabric8.jenkins.openshiftsync.BuildConfigToJobMapper.updateBuildConfigFromJob;
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_LABELS_BUILD_CONFIG_GIT_REPOSITORY_NAME;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
 
@@ -261,11 +257,49 @@ public class PipelineJobListener extends ItemListener {
     return null;
   }
 
+  /*Right now, when the buildconfig name is different then git repo name
+  then sync plugin is not able to find buildconfig by repo name while
+  syncing back to openshift after creating a buildconfig with strategy
+  JenkinsPipeline, and create a new buildconfig repo name, To fix this
+  issue, added a label of gitRepository name so it will first try to
+  find the BuildConfig with name of jenkins job, if that is not present
+  that is our case then it will also try to find the buildconfig having
+  label with the name of jenkins job and then if it is not present will
+  create a new BuildConfig*/
+
   private void upsertBuildConfigForJob(WorkflowJob job, BuildConfigProjectProperty buildConfigProjectProperty) {
     boolean create = false;
+
+    logger.info("Finding BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() + " name: " +
+      buildConfigProjectProperty.getName());
+
     BuildConfig jobBuildConfig = getOpenShiftClient().buildConfigs().
             inNamespace(buildConfigProjectProperty.getNamespace()).withName(buildConfigProjectProperty.getName()).get();
+
+    if (jobBuildConfig == null){
+
+      logger.info("Not able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() + " name: " +
+        buildConfigProjectProperty.getName());
+
+      logger.info("Finding BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
+        " with label gitRepository: " + buildConfigProjectProperty.getName());
+
+      BuildConfigList jobBuildConfigs = getOpenShiftClient().buildConfigs().
+        inNamespace(buildConfigProjectProperty.getNamespace())
+        .withLabels(Collections.singletonMap(OPENSHIFT_LABELS_BUILD_CONFIG_GIT_REPOSITORY_NAME, buildConfigProjectProperty.getName())).list();
+
+      /*Always choose the first one because launcher(https://github.com/fabric8-launcher/launcher-backend) will create
+       a single pipeline for a git repo and this will always return one if exists and nothing if does not exist*/
+      if (!jobBuildConfigs.getItems().isEmpty()){
+        jobBuildConfig = jobBuildConfigs.getItems().get(0);
+      } else {
+        logger.info("Not able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
+          " with label gitRepository: " + buildConfigProjectProperty.getName());
+      }
+    }
+
     if (jobBuildConfig == null) {
+
       create = true;
       jobBuildConfig = new BuildConfigBuilder().
               withNewMetadata().withName(buildConfigProjectProperty.getName()).
@@ -276,6 +310,10 @@ public class PipelineJobListener extends ItemListener {
               withNewStrategy().withType("JenkinsPipeline").withNewJenkinsPipelineStrategy().endJenkinsPipelineStrategy().endStrategy().
               endSpec().build();
     } else {
+
+      logger.info("Able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
+        " with label gitRepository: " + buildConfigProjectProperty.getName());
+
       ObjectMeta metadata = jobBuildConfig.getMetadata();
       String uid = buildConfigProjectProperty.getUid();
       if (metadata != null && StringUtils.isEmpty(uid)) {
@@ -299,6 +337,8 @@ public class PipelineJobListener extends ItemListener {
     
     if (create) {
       try {
+        logger.info("Creating BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
+          " with name: " + buildConfigProjectProperty.getName());
         BuildConfig bc = getOpenShiftClient().buildConfigs().inNamespace(jobBuildConfig.getMetadata().getNamespace()).create(jobBuildConfig);
         String uid = bc.getMetadata().getUid();
         buildConfigProjectProperty.setUid(uid);
