@@ -292,10 +292,15 @@ public class PipelineJobListener extends ItemListener {
        a single pipeline for a git repo and this will always return one if exists and nothing if does not exist*/
       if (!jobBuildConfigs.getItems().isEmpty()){
         jobBuildConfig = jobBuildConfigs.getItems().get(0);
+        logger.info("Able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
+          " with label gitRepository: " + buildConfigProjectProperty.getName());
       } else {
         logger.info("Not able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
           " with label gitRepository: " + buildConfigProjectProperty.getName());
       }
+    } else {
+      logger.info("Able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() + " name: " +
+        buildConfigProjectProperty.getName());
     }
 
     if (jobBuildConfig == null) {
@@ -310,9 +315,6 @@ public class PipelineJobListener extends ItemListener {
               withNewStrategy().withType("JenkinsPipeline").withNewJenkinsPipelineStrategy().endJenkinsPipelineStrategy().endStrategy().
               endSpec().build();
     } else {
-
-      logger.info("Able to find BuildConfig for namespace: " + buildConfigProjectProperty.getNamespace() +
-        " with label gitRepository: " + buildConfigProjectProperty.getName());
 
       ObjectMeta metadata = jobBuildConfig.getMetadata();
       String uid = buildConfigProjectProperty.getUid();
