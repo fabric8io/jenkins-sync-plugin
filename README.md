@@ -41,12 +41,12 @@ Assuming you are in jenkins-sync-plugin folder.
 
 * Generate hpi file
   Execute `mvn package`
-  
-This will generate openshift-sync.hpi in your target folder. After that you need to create jpi file from this hpi file and need to send a PR to [openshift-jenkins-s2i-config](https://github.com/fabric8io/openshift-jenkins-s2i-config) 
+
+This will generate openshift-sync.hpi in your target folder. After that you need to create jpi file from this hpi file (basically renaming it works) and need to send a PR to [openshift-jenkins-s2i-config](https://github.com/fabric8io/openshift-jenkins-s2i-config)
 
 Assuming jenkins-sync-plugin and openshift-jenkins-s2i-config are cloned at same location.
 
 * Generate jpi file and copy to openshift-s2i-config
   Execute `cp ../jenkins-sync-plugin/target/openshift-sync.hpi plugins/openshift-sync.jpi`
-  
+
 After you need to send a PR to both jenkins-sync plugin:job-to-bc and openshift-jenkins-s2i-config:master
