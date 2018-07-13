@@ -20,6 +20,7 @@ import hudson.model.Action;
 import hudson.model.Cause;
 import hudson.model.CauseAction;
 import hudson.model.Queue;
+import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildRequestBuilder;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
@@ -84,8 +85,8 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
       }
       if (triggerOpenShiftBuild) {
         String namespace = new GlobalPluginConfiguration().getNamespace();
-        String buildConfigName = JenkinsUtils.getBuildConfigName(wj);
-        String jobName = OpenShiftUtils.convertNameToValidResourceName(buildConfigName);
+        String jobName = JenkinsUtils.getBuildConfigName(wj);
+        String buildConfigname = OpenShiftUtils.convertNameToValidResourceName(jobName);
         String jenkinsNS = namespace;
         if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
           jenkinsNS = jenkinsNamespace;
@@ -104,18 +105,26 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
           return true;
         }
         logger.info("Triggering OpenShift Build for WorkflowJob " + wj.getFullName() + " due to " + causeDescription(actions));
-        openShiftClient.buildConfigs()
-          .inNamespace(namespace).withName(jobName)
-          .instantiate(
-            new BuildRequestBuilder()
-              .withNewMetadata().withName(jobName).and()
-              .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
-              .build()
-          );
-        return false;
+        BuildConfig foundBuildConfig = OpenShiftUtils.findBCbyNameOrLabel(getOpenShiftClient(), namespace, buildConfigname);
+        if (foundBuildConfig != null) {
+          buildConfigname = foundBuildConfig.getMetadata().getName();
+          triggerBuildRequest(buildConfigname, namespace, jobURL);
+          return false;
+        }
       }
     }
     return true;
+  }
+
+  private void triggerBuildRequest(String buildConfigname, String namespace, String jobURL) {
+    getOpenShiftClient().buildConfigs()
+      .inNamespace(namespace).withName(buildConfigname)
+      .instantiate(
+        new BuildRequestBuilder()
+          .withNewMetadata().withName(buildConfigname).and()
+          .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
+          .build()
+      );
   }
 
   private boolean isJobInQueue(WorkflowJob wj) {
