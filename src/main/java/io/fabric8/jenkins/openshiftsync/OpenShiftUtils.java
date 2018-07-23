@@ -40,6 +40,7 @@ import io.fabric8.openshift.api.model.BuildConfigSpec;
 import io.fabric8.openshift.api.model.BuildSource;
 import io.fabric8.openshift.api.model.BuildStatus;
 import io.fabric8.openshift.api.model.GitBuildSource;
+import io.fabric8.openshift.api.model.BuildConfigList;
 import io.fabric8.openshift.api.model.Route;
 import io.fabric8.openshift.api.model.RouteList;
 import io.fabric8.openshift.api.model.RouteSpec;
@@ -66,9 +67,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Collections;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -77,6 +79,7 @@ import static io.fabric8.jenkins.openshiftsync.BuildPhases.PENDING;
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.RUNNING;
 import static io.fabric8.jenkins.openshiftsync.ConfigMapKeys.CONFIG_XML;
 import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_DEFAULT_NAMESPACE;
+import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_LABELS_BUILD_CONFIG_GIT_REPOSITORY_NAME;
 import static java.util.logging.Level.FINE;
 
 /**
@@ -112,6 +115,39 @@ public class OpenShiftUtils {
       openShiftClient.close();
       openShiftClient = null;
     }
+  }
+
+  /**
+   * This will return the buildConfig whose name is equal to buildConfigName
+   * or the buildConfig with a label of the buildconfigName
+   */
+  public static BuildConfig findBCbyNameOrLabel(OpenShiftClient client,String namespace, String buildConfigname) {
+
+    logger.info("Finding BuildConfig for namespace: " + namespace + " name: " + buildConfigname);
+    BuildConfig jobBuildConfig = client.buildConfigs().
+      inNamespace(namespace).withName(buildConfigname).get();
+
+    if (jobBuildConfig == null){
+      logger.info("Not able to find BuildConfig for namespace: " + namespace + " name: " + buildConfigname);
+      logger.info("Finding BuildConfig for namespace: " + namespace + " with label gitRepository: " + buildConfigname);
+
+      /* BuildConfig and Repo Name are not same, lets find the buildConfig by label*/
+      BuildConfigList jobBuildConfigs = client.buildConfigs().inNamespace(namespace)
+        .withLabels(Collections.singletonMap(OPENSHIFT_LABELS_BUILD_CONFIG_GIT_REPOSITORY_NAME, buildConfigname)).list();
+
+      /*Always choose the first one because launcher(https://github.com/fabric8-launcher/launcher-backend) will create
+       a single pipeline for a git repo and this will always return one if exists and nothing if does not exist*/
+      if (!jobBuildConfigs.getItems().isEmpty()){
+        jobBuildConfig = jobBuildConfigs.getItems().get(0);
+        logger.info("Able to find BuildConfig for namespace: " + namespace + " with label gitRepository: " + buildConfigname);
+      } else {
+        logger.info("Not able to find BuildConfig for namespace: " + namespace +
+          " with label gitRepository: " + buildConfigname);
+      }
+    } else {
+      logger.info("Able to find BuildConfig for namespace: " + namespace + " name: " + buildConfigname);
+    }
+    return jobBuildConfig;
   }
 
   /**
