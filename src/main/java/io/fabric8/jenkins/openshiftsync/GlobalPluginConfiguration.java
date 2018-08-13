@@ -50,6 +50,8 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
 
   private String skipBranchSuffix;
 
+  private boolean cancelPRBuildOnUpdate = true;
+
   private transient BuildWatcher buildWatcher;
 
   private transient BuildConfigWatcher buildConfigWatcher;
@@ -59,13 +61,14 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
   private transient ConfigMapWatcher configMapWatcher;
 
   @DataBoundConstructor
-  public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern, String skipOrganisationPrefix, String skipBranchSuffix) {
+  public GlobalPluginConfiguration(boolean enable, String server, String namespace, String jobNamePattern, String skipOrganisationPrefix, String skipBranchSuffix, boolean cancelPRbuildOnUpdate) {
     this.enabled = enable;
     this.server = server;
     this.namespace = namespace;
     this.jobNamePattern = jobNamePattern;
     this.skipOrganisationPrefix = skipOrganisationPrefix;
     this.skipBranchSuffix = skipBranchSuffix;
+    this.cancelPRBuildOnUpdate = cancelPRbuildOnUpdate;
     configChange();
   }
 
@@ -140,6 +143,14 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
     this.skipBranchSuffix = skipBranchSuffix;
   }
 
+  public boolean getCancelPRBuildOnUpdate() {
+    return cancelPRBuildOnUpdate;
+  }
+
+  public void setCancelPRBuildOnUpdate(boolean cancelPRBuildOnUpdate) {
+    this.cancelPRBuildOnUpdate = cancelPRBuildOnUpdate;
+  }
+
   private void configChange() {
     if (!enabled) {
       if (buildConfigWatcher != null) {
@@ -206,5 +217,4 @@ public class GlobalPluginConfiguration extends GlobalConfiguration {
       }
     }
   }
-
 }

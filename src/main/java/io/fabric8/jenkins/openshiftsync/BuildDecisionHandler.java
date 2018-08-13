@@ -20,8 +20,8 @@ import hudson.model.Action;
 import hudson.model.Cause;
 import hudson.model.CauseAction;
 import hudson.model.Queue;
+import io.fabric8.openshift.api.model.Build;
 import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.BuildRequestBuilder;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.branch.BranchEventCause;
@@ -29,11 +29,13 @@ import jenkins.branch.BranchIndexingCause;
 import jenkins.model.Jenkins;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
 
+import static io.fabric8.jenkins.openshiftsync.BuildPhases.CANCELLED;
 import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getJenkinsURL;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
@@ -56,6 +58,7 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
 
       boolean triggerOpenShiftBuild = !isOpenShiftBuildCause(actions);
       OpenShiftClient openShiftClient = getOpenShiftClient();
+      boolean isPRBuild = false;
       if (triggerOpenShiftBuild) {
         // if on kubernetes let's always trigger
         if (openShiftClient != null && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
@@ -68,13 +71,12 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
           }
         } else {
           if (isBranchCause(actions)) {
-            boolean isPRBuild = false;
             if (wj.getName() != null && wj.getName().startsWith("PR-")){
               isPRBuild = true;
             }
-            if ((wj.getFirstBuild() != null && !isPRBuild)|| wj.isBuilding() || wj.isBuildBlocked() || isJobInQueue(wj)) {
+            if ((wj.getFirstBuild() != null && !isPRBuild)) {
               // lets only trigger an OpenShift build if the build index cause
-              // happens on projects not built yet - if its already been built or is building lets ignore
+              // happens on projects not built yet - if its already been built lets ignore
 
               // TODO we could filter the WorkflowJob to find only OpenShift enabled jobs?
               // or maybe use an annotation to enable triggering of jobs when the organisation rescans?
@@ -84,10 +86,12 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         }
       }
       if (triggerOpenShiftBuild) {
-        String namespace = new GlobalPluginConfiguration().getNamespace();
+        GlobalPluginConfiguration gpc = new GlobalPluginConfiguration();
+        String namespace = gpc.getNamespace();
         String jobName = JenkinsUtils.getBuildConfigName(wj);
         String buildConfigname = OpenShiftUtils.convertNameToValidResourceName(jobName);
         String jenkinsNS = namespace;
+        boolean cancelPRBuildOnUpdate = gpc.getCancelPRBuildOnUpdate();
         if (jenkinsNamespace != null && !jenkinsNamespace.isEmpty()) {
           jenkinsNS = jenkinsNamespace;
         }
@@ -107,24 +111,31 @@ public class BuildDecisionHandler extends Queue.QueueDecisionHandler {
         logger.info("Triggering OpenShift Build for WorkflowJob " + wj.getFullName() + " due to " + causeDescription(actions));
         BuildConfig foundBuildConfig = OpenShiftUtils.findBCbyNameOrLabel(getOpenShiftClient(), namespace, buildConfigname);
         if (foundBuildConfig != null) {
+          int buildInJenkins = wj.getLastBuild()!=null ? wj.getLastBuild().number : 0;
           buildConfigname = foundBuildConfig.getMetadata().getName();
-          triggerBuildRequest(buildConfigname, namespace, jobURL);
+          if (isPRBuild && cancelPRBuildOnUpdate && (buildInJenkins > 0 || (buildInJenkins == 0 && isJobInQueue(wj)))) {
+            if (isJobInQueue(wj)){
+              Build build = getOpenShiftClient().builds()
+                .inNamespace(namespace).withName(buildConfigname + "-" + wj.getNextBuildNumber()).get();
+              if (JenkinsUtils.cancelQueuedBuild(wj, build)){
+                OpenShiftUtils.updateOpenShiftBuildPhase(build, CANCELLED , "Cancelled due to new PR request");
+                try {
+                  wj.updateNextBuildNumber(wj.getNextBuildNumber()+1);
+                } catch (IOException exception){
+                  logger.info("Unable to set new Build Number " + exception);
+                }
+              }
+            }
+            else if (wj.getLastBuild().isBuilding()) {
+              wj.getLastBuild().doKill();
+            }
+          }
+          OpenShiftUtils.triggerBuildRequest(buildConfigname, namespace, jobURL);
           return false;
         }
       }
     }
     return true;
-  }
-
-  private void triggerBuildRequest(String buildConfigname, String namespace, String jobURL) {
-    getOpenShiftClient().buildConfigs()
-      .inNamespace(namespace).withName(buildConfigname)
-      .instantiate(
-        new BuildRequestBuilder()
-          .withNewMetadata().withName(buildConfigname).and()
-          .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
-          .build()
-      );
   }
 
   private boolean isJobInQueue(WorkflowJob wj) {

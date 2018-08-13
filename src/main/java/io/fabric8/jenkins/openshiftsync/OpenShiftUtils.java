@@ -39,6 +39,7 @@ import io.fabric8.openshift.api.model.BuildConfig;
 import io.fabric8.openshift.api.model.BuildConfigSpec;
 import io.fabric8.openshift.api.model.BuildSource;
 import io.fabric8.openshift.api.model.BuildStatus;
+import io.fabric8.openshift.api.model.BuildRequestBuilder;
 import io.fabric8.openshift.api.model.GitBuildSource;
 import io.fabric8.openshift.api.model.BuildConfigList;
 import io.fabric8.openshift.api.model.Route;
@@ -413,12 +414,42 @@ public class OpenShiftUtils {
     gitSource.setRef(ref);
   }
 
+  public static void updateOpenShiftBuildPhase(Build build, String phase, String message) {
+    if (message == null || message.isEmpty()) {
+      updateOpenShiftBuildPhase(build,phase);
+    } else {
+      logger.log(FINE, "setting build to {0} in namespace {1}/{2} and message {3}",
+        new Object[]{phase, build.getMetadata().getNamespace(), build.getMetadata().getName(), message});
+      getOpenShiftClient().builds().inNamespace(build.getMetadata().getNamespace()).withName(build.getMetadata().getName())
+        .edit()
+        .editStatus()
+          .withPhase(phase)
+        .endStatus()
+        .editSpec()
+          .editTriggeredBy(0).withMessage(message).endTriggeredBy()
+        .endSpec()
+        .done();
+    }
+  }
+
   public static void updateOpenShiftBuildPhase(Build build, String phase) {
-    logger.log(FINE, "setting build to {0} in namespace {1}/{2}", new Object[]{phase, build.getMetadata().getNamespace(), build.getMetadata().getName()});
+    logger.log(FINE, "setting build to {0} in namespace {1}/{2}",
+      new Object[]{phase, build.getMetadata().getNamespace(), build.getMetadata().getName()});
     getOpenShiftClient().builds().inNamespace(build.getMetadata().getNamespace()).withName(build.getMetadata().getName())
       .edit()
       .editStatus().withPhase(phase).endStatus()
       .done();
+  }
+
+  public static void triggerBuildRequest(String buildConfigname, String namespace, String jobURL) {
+    getOpenShiftClient().buildConfigs()
+      .inNamespace(namespace).withName(buildConfigname)
+      .instantiate(
+        new BuildRequestBuilder()
+          .withNewMetadata().withName(buildConfigname).and()
+          .addNewTriggeredBy().withMessage("Triggered by Jenkins job at " + jobURL).and()
+          .build()
+      );
   }
 
   /**

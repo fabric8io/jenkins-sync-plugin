@@ -42,5 +42,9 @@
              description="What branch name suffix should we omit from the generated OpenShift BuildConfig resources created by the sync plugin.  Its common to use a common branch name like `master` which we can omit from names to avoid noise.">
       <f:textbox/>
     </f:entry>
+    <f:entry title="Cancel PR Build On Update" field="cancelPRBuildOnUpdate"
+             description="Enabling this feature will cancel the previous build and schedule new one if PR gets updated while the previous build is in progress or in queue">
+      <f:checkbox/>
+    </f:entry>
   </f:section>
 </j:jelly>
