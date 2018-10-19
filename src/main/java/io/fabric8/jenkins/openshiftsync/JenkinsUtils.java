@@ -16,12 +16,7 @@
 package io.fabric8.jenkins.openshiftsync;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import hudson.model.Action;
-import hudson.model.Cause;
-import hudson.model.CauseAction;
-import hudson.model.Job;
-import hudson.model.Queue;
-import hudson.model.TopLevelItem;
+import hudson.model.*;
 import hudson.plugins.git.RevisionParameterAction;
 import hudson.security.ACL;
 import hudson.triggers.SafeTimerTask;
@@ -30,12 +25,7 @@ import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.kubernetes.client.dsl.FilterWatchListDeletable;
 import io.fabric8.openshift.api.model.Build;
-import io.fabric8.openshift.api.model.BuildBuilder;
-import io.fabric8.openshift.api.model.BuildConfig;
-import io.fabric8.openshift.api.model.BuildList;
-import io.fabric8.openshift.api.model.GitBuildSource;
-import io.fabric8.openshift.api.model.GitSourceRevision;
-import io.fabric8.openshift.api.model.SourceRevision;
+import io.fabric8.openshift.api.model.*;
 import io.fabric8.openshift.client.OpenShiftAPIGroups;
 import io.fabric8.openshift.client.OpenShiftClient;
 import jenkins.model.Jenkins;
@@ -60,13 +50,9 @@ import static io.fabric8.jenkins.openshiftsync.BuildPhases.PENDING;
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL;
 import static io.fabric8.jenkins.openshiftsync.BuildRunPolicy.SERIAL_LATEST_ONLY;
 import static io.fabric8.jenkins.openshiftsync.BuildWatcher.buildAdded;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_ANNOTATIONS_BUILD_NUMBER;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_BUILD_STATUS_FIELD;
-import static io.fabric8.jenkins.openshiftsync.Constants.OPENSHIFT_LABELS_BUILD_CONFIG_NAME;
+import static io.fabric8.jenkins.openshiftsync.Constants.*;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.isCancelled;
-import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.updateOpenShiftBuildPhase;
+import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.*;
 import static java.util.Collections.sort;
 import static java.util.logging.Level.SEVERE;
 import static java.util.logging.Level.WARNING;
@@ -77,6 +63,9 @@ import static org.apache.commons.lang.StringUtils.isBlank;
 public class JenkinsUtils {
 
   private static final Logger LOGGER = Logger.getLogger(JenkinsUtils.class.getName());
+
+  public static final String JENKINS_ROOT_URL_ENV_VAR = "JENKINS_ROOT_URL";
+
 
   public static Job getJob(String job) {
     TopLevelItem item = Jenkins.getActiveInstance().getItem(job);
@@ -314,7 +303,7 @@ public class JenkinsUtils {
       inNamespace(bcp.getNamespace()).withLabel(OPENSHIFT_LABELS_BUILD_CONFIG_NAME, bcp.getName());
       // we can't use field filters on the new API Groups API
       if (openShiftClient.supportsApiPath("/oapi") && !openShiftClient.supportsOpenShiftAPIGroup(OpenShiftAPIGroups.IMAGE)) {
-      resource = resource.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW);
+        resource = resource.withField(OPENSHIFT_BUILD_STATUS_FIELD, BuildPhases.NEW);
       }
       List<Build> builds = resource.list().getItems();
       handleBuildList(job, builds, bcp);
@@ -457,5 +446,40 @@ public class JenkinsUtils {
       }
     }
     return pattern;
+  }
+
+  /**
+   * Joins all the given strings, ignoring nulls so that they form a URL with / between the paths without a // if the
+   * previous path ends with / and the next path starts with / unless a path item is blank
+   *
+   * @param strings the sequence of strings to join
+   * @return the strings concatenated together with / while avoiding a double // between non blank strings.
+   */
+  public static String joinPaths(String... strings) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < strings.length; i++) {
+      sb.append(strings[i]);
+      if (i < strings.length - 1) {
+        sb.append("/");
+      }
+    }
+    String joined = sb.toString();
+
+    // And normalize it...
+    return joined
+      .replaceAll("/+", "/")
+      .replaceAll("/\\?", "?")
+      .replaceAll("/#", "#")
+      .replaceAll(":/", "://");
+  }
+
+  /*Fix for jenkins proxy/idler introduction to get the right URL for console*/
+  public static String getHostName(OpenShiftClient openShiftClient, String namespace) {
+    String rootUrlFromEnvVar = System.getenv(JENKINS_ROOT_URL_ENV_VAR);
+    if(rootUrlFromEnvVar != null) {
+      return rootUrlFromEnvVar.trim();
+    } else {
+      return OpenShiftUtils.getJenkinsURL(openShiftClient, namespace);
+    }
   }
 }
