@@ -17,6 +17,6 @@ package io.fabric8.jenkins.openshiftsync;
 
 /**
  */
-public class EnvironmentVariables {
+public class EnvironmentVars {
   public static final String OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED = "OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED";
 }

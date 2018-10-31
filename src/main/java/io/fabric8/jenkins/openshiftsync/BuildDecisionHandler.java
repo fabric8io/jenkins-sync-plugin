@@ -36,7 +36,7 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 import static io.fabric8.jenkins.openshiftsync.BuildPhases.CANCELLED;
-import static io.fabric8.jenkins.openshiftsync.BuildSyncRunListener.joinPaths;
+import static io.fabric8.jenkins.openshiftsync.JenkinsUtils.joinPaths;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getJenkinsURL;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getOpenShiftClient;
 

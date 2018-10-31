@@ -15,7 +15,6 @@
  */
 package io.fabric8.jenkins.openshiftsync;
 
-import hudson.model.ItemGroup;
 import hudson.plugins.git.BranchSpec;
 import hudson.plugins.git.GitSCM;
 import hudson.plugins.git.SubmoduleConfig;
@@ -48,7 +47,7 @@ import java.util.logging.Logger;
 import static io.fabric8.jenkins.openshiftsync.Annotations.GENERATED_BY;
 import static io.fabric8.jenkins.openshiftsync.Annotations.GROOVY_SANDBOX;
 import static io.fabric8.jenkins.openshiftsync.CredentialsUtils.updateSourceCredentials;
-import static io.fabric8.jenkins.openshiftsync.EnvironmentVariables.OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED;
+import static io.fabric8.jenkins.openshiftsync.EnvironmentVars.OPENSHIFT_ALLOW_GROOVY_SANDBOX_DISABLED;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.addAnnotation;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.getAnnotation;
 import static io.fabric8.jenkins.openshiftsync.OpenShiftUtils.removeAnnotation;
